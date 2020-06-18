@@ -6,6 +6,7 @@ Not quite complete.
 need to build each players twistdeck and allow them to cheat. 
 
 **We have the following commands:**
+
 **!createDeck** = creates the users twist deck, 
 format: *!createTwistDeck Defining Ascendant Center Descendant* 
 For example *!createTwistDeck rams crows masks tomes*.
