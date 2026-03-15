@@ -100,7 +100,7 @@ function drawFate(g) {
 
 // ── Embeds ────────────────────────────────────────────────────
 function flipEmbed(cards, actor, cheated = false) {
-  const top = cards[cards.length - 1];
+  const top = cards[0]; // sorted descending, so index 0 is highest/active
   let color, title;
 
   if (top.rank === 'RJ') {
@@ -114,10 +114,19 @@ function flipEmbed(cards, actor, cheated = false) {
     title = `${cardLabel(top)} · ${cardValue(top)}${cheated ? ' *(cheated)*' : ''}`;
   }
 
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(title)
-    .setFooter({ text: `${actor}${cards.length > 1 ? ' · ' + cards.length + ' flips' : ''}` });
+    .setFooter({ text: actor });
+
+  if (cards.length > 1) {
+    const lines = cards.map((c, i) =>
+      `${i === 0 ? '▶' : '  '} ${cardLabel(c)} · ${cardValue(c)}`
+    ).join('\n');
+    embed.setDescription(lines);
+  }
+
+  return embed;
 }
 
 // ── Commands ──────────────────────────────────────────────────
@@ -125,17 +134,25 @@ const commands = {};
 
 // !flip [n]
 commands.flip = async (msg, args, g, player) => {
-  const count = Math.min(parseInt(args[0]) || 1, 10);
+  const count = Math.min(parseInt(args[0]) || 1, 4);
+
+  // Move any previous active flips to discard
+  for (const c of g.lastFlips) g.discard.push(c);
+  g.lastFlips = [];
+
   const flipped = [];
   for (let i = 0; i < count; i++) {
     const c = drawFate(g);
     if (!c) { await msg.reply('No cards remain.'); return; }
     flipped.push(c);
   }
+
+  // Sort descending by value — highest is the active card (last in array)
+  flipped.sort((a, b) => cardValue(b) - cardValue(a));
   g.lastFlips = flipped;
   save();
 
-  const top = flipped[flipped.length - 1];
+  const top = flipped[0]; // highest value = active
   const components = [];
   if (top.rank !== 'BJ' && player.hand.length > 0) {
     components.push(new ActionRowBuilder().addComponents(
@@ -147,7 +164,8 @@ commands.flip = async (msg, args, g, player) => {
     ));
   }
 
-  await msg.reply({ embeds: [flipEmbed(flipped, msg.author.username)], components });
+  const embed = flipEmbed(flipped, msg.author.username);
+  await msg.reply({ embeds: [embed], components });
 };
 
 // !draw [n]
@@ -199,7 +217,7 @@ commands.cheat = async (msg, args, g, player) => {
   if (!args[0]) { await msg.reply('Usage: `!cheat <card number>`'); return; }
   if (!g.lastFlips || g.lastFlips.length === 0) { await msg.reply('No active flip.'); return; }
 
-  const top = g.lastFlips[g.lastFlips.length - 1];
+  const top = g.lastFlips[0]; // highest/active card is index 0
   if (top.rank === 'BJ') { await msg.reply('The Black Joker cannot be cheated.'); return; }
 
   const cardNum = parseInt(args[0]);
@@ -212,9 +230,9 @@ commands.cheat = async (msg, args, g, player) => {
 
   // Hand card replaces the flip; old flip goes to fate discard; used hand card goes to twist discard
   player.hand.splice(cardNum - 1, 1);
-  g.discard.push(top);               // old flip → fate discard
-  player.twistDiscard.push(handCard); // used hand card → twist discard
-  g.lastFlips[g.lastFlips.length - 1] = handCard;
+  g.discard.push(top);
+  player.twistDiscard.push(handCard);
+  g.lastFlips[0] = handCard;
   save();
 
   await msg.reply({ embeds: [flipEmbed(g.lastFlips, msg.author.username, true)] });
@@ -280,8 +298,21 @@ commands.twistShuffle = async (msg, args, g, player) => {
 
 // !deckinfo
 commands.deckinfo = async (msg, args, g, player) => {
-  const last = g.lastFlips.length ? cardLabel(g.lastFlips[g.lastFlips.length - 1]) : 'none';
+  const last = g.lastFlips.length ? cardLabel(g.lastFlips[0]) : 'none';
   await msg.reply(`Deck: ${g.deck.length} · Discard: ${g.discard.length} · Last flip: ${last}`);
+};
+
+// !discard — show player's own twist discard pile
+commands.discard = async (msg, args, g, player) => {
+  if (player.twistDiscard.length === 0) { await msg.reply('Your twist discard is empty.'); return; }
+  const sorted = [...player.twistDiscard].sort((a, b) => cardValue(b) - cardValue(a));
+  const lines = sorted.map(c => `${cardLabel(c)} · ${cardValue(c)}`).join('\n');
+  try {
+    await msg.author.send(`**Your twist discard (${player.twistDiscard.length}):**\n${lines}`);
+    await msg.reply('Check your DMs.');
+  } catch {
+    await msg.reply(`**Your twist discard (${player.twistDiscard.length}):**\n${lines}`);
+  }
 };
 
 // !clearhand
@@ -312,7 +343,7 @@ commands.help = async (msg) => {
           },
           {
             name: 'Players',
-            value: '`!draw [n]` · `!hand` · `!cheat <n>`',
+            value: '`!draw [n]` · `!hand` · `!cheat <n>` · `!discard`',
           },
           {
             name: 'Suits',
