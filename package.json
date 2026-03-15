@@ -1,17 +1,17 @@
 {
-  "name": "Wyrd Fate Deck",
-  "version": "1.0.0",
-  "description": "Fate Deck bot",
+  "name": "wyrdbot",
+  "version": "2.0.0",
+  "description": "Through the Breach Fate Deck Discord Bot",
   "main": "wyrdbot.js",
-  "author": "8w-Gremlin",
+  "scripts": {
+    "start": "node wyrdbot.js",
+    "dev": "node --watch wyrdbot.js"
+  },
   "dependencies": {
-    "@keyv/sqlite": "^2.0.2",
-    "card-deck": "^1.0.1",
-    "discord.io": "https://github.com/woor/discord.io/tarball/gateway_v6",
-    "discord.js": "^12.1.1",
-    "keyv": "^4.0.0",
-    "sequelize": "^5.21.6",
-    "sqlite3": "^4.1.1",
-    "winston": "^3.2.1"
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
