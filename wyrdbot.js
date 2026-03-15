@@ -4,26 +4,37 @@
 // ============================================================
 
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 // ── Config ────────────────────────────────────────────────────
-const TOKEN      = process.env.DISCORD_TOKEN;
-const PREFIX     = '!';
+const TOKEN = process.env.DISCORD_TOKEN;
+const PREFIX = '!';
 const STATE_FILE = path.join(__dirname, 'state.json');
+const FM_ROLE = 'Fate Master';   // Discord role name required for FM commands
+
+// Commands only a Fate Master may use
+const FM_ONLY = new Set(['flip', 'shuffle', 'reshuffle', 'deckinfo', 'twistShuffle', 'clearhand', 'createTwistDeck']);
+
+function isFateMaster(member) {
+  if (!member) return false;
+  // Server owner always counts as FM
+  if (member.id === member.guild.ownerId) return true;
+  return member.roles.cache.some(r => r.name === FM_ROLE);
+}
 
 // ── Card Data ─────────────────────────────────────────────────
-const RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
-const SUITS = ['Tomes','Masks','Rams','Crows'];           // Through the Breach suits
+const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+const SUITS = ['Tomes', 'Masks', 'Rams', 'Crows'];           // Through the Breach suits
 const SUIT_EMOJI = { Tomes: '📚', Masks: '🎭', Rams: '🐏', Crows: '🐦‍⬛' };
 const SUIT_COLOR = { Tomes: 0xb8860b, Masks: 0x8b1a1a, Rams: 0x2e8b8b, Crows: 0x3a3a5c };
-const RANK_VALUE = { A:1,2:2,3:3,4:4,5:5,6:6,7:7,8:8,9:9,10:10,J:11,Q:12,K:13,RJ:14,BJ:0 };
+const RANK_VALUE = { A: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, J: 11, Q: 12, K: 13, RJ: 14, BJ: 0 };
 
 // Standard suit aliases players can type
 const SUIT_ALIASES = {
   tomes: 'Tomes', tome: 'Tomes', t: 'Tomes',
   masks: 'Masks', mask: 'Masks', m: 'Masks',
-  rams:  'Rams',  ram: 'Rams',  r: 'Rams',
+  rams: 'Rams', ram: 'Rams', r: 'Rams',
   crows: 'Crows', crow: 'Crows', c: 'Crows',
 };
 
@@ -60,12 +71,12 @@ function cardValue(card) {
 function loadState() {
   try {
     if (fs.existsSync(STATE_FILE)) return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-  } catch {}
+  } catch { }
   return {};
 }
 
 function saveState(state) {
-  try { fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2)); } catch {}
+  try { fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2)); } catch { }
 }
 
 // state shape per guild:
@@ -334,7 +345,7 @@ commands.createTwistDeck = async (msg, args, g, player) => {
   const suits = {};
   for (let i = 0; i < 4; i++) {
     const input = args[i].toLowerCase();
-    const suit  = SUIT_ALIASES[input];
+    const suit = SUIT_ALIASES[input];
     if (!suit) {
       await msg.reply(`⚠️ Unknown suit: **${args[i]}**. Valid suits: Tomes, Masks, Rams, Crows`);
       return;
@@ -348,10 +359,10 @@ commands.createTwistDeck = async (msg, args, g, player) => {
   // but mark it with all 4 destiny positions
   const twistDeck = RANKS.map(rank => ({ rank, suit: suits.Defining, twistCard: true }));
 
-  player.twistSuits  = suits;
-  player.twistDeck   = shuffle(twistDeck);
+  player.twistSuits = suits;
+  player.twistDeck = shuffle(twistDeck);
   player.twistDiscard = [];
-  player.hand        = [];
+  player.hand = [];
   save();
 
   const lines = positions.map(p => `**${p}:** ${SUIT_EMOJI[suits[p]]} ${suits[p]}`).join('\n');
@@ -376,7 +387,7 @@ commands.shuffle = async (msg, args, g, player) => {
 
 // !reshuffle — full reset, notify all to draw a card
 commands.reshuffle = async (msg, args, g, player) => {
-  g.deck    = shuffle(buildDeck());
+  g.deck = shuffle(buildDeck());
   g.discard = [];
   g.lastFlips = [];
   save();
@@ -406,10 +417,10 @@ commands.deckinfo = async (msg, args, g, player) => {
     embeds: [
       baseEmbed('📊 Fate Deck Status')
         .addFields(
-          { name: 'Cards in Deck',    value: `${g.deck.length}`,    inline: true },
+          { name: 'Cards in Deck', value: `${g.deck.length}`, inline: true },
           { name: 'Cards in Discard', value: `${g.discard.length}`, inline: true },
-          { name: 'Active Players',   value: `${Object.keys(g.players).length}`, inline: true },
-          { name: 'Last Flip',        value: g.lastFlips.length ? cardLabel(g.lastFlips[g.lastFlips.length - 1]) : 'None', inline: false },
+          { name: 'Active Players', value: `${Object.keys(g.players).length}`, inline: true },
+          { name: 'Last Flip', value: g.lastFlips.length ? cardLabel(g.lastFlips[g.lastFlips.length - 1]) : 'None', inline: false },
         ),
     ],
   });
@@ -426,13 +437,14 @@ commands.clearhand = async (msg, args, g, player) => {
 
 // !help
 commands.help = async (msg) => {
+  const fm = msg.member && isFateMaster(msg.member);
   await msg.reply({
     embeds: [
       baseEmbed('📖 WyrdBot Commands')
-        .setDescription('Through the Breach — Fate Deck Bot')
+        .setDescription('Through the Breach — Fate Deck Bot\n🔒 = **Fate Master** role required')
         .addFields(
           {
-            name: '🎴 Fate Deck',
+            name: '🎴 Fate Deck  🔒',
             value: [
               '`!flip` — Flip a card from the Fate Deck',
               '`!flip 3` — Flip multiple cards',
@@ -442,19 +454,19 @@ commands.help = async (msg) => {
             ].join('\n'),
           },
           {
-            name: '🃏 Twist Deck & Hand',
+            name: '🃏 Twist Deck & Hand  🔒',
             value: [
-              '`!createTwistDeck Rams Crows Masks Tomes` — Set up your Twist Deck',
-              '`!draw` — Draw 1 card to hand (DM\'d privately)',
-              '`!draw 3` — Draw multiple cards',
-              '`!hand` — See your current hand (DM\'d privately)',
-              '`!clearhand` — Discard all cards in hand',
+              '`!createTwistDeck Rams Crows Masks Tomes` — Set up a player\'s Twist Deck',
+              '`!clearhand` — Discard all cards from your hand',
               '`!twistShuffle` — Reshuffle your Twist Deck',
             ].join('\n'),
           },
           {
-            name: '⚡ Cheating Fate',
+            name: '🙋 Player Commands (anyone)',
             value: [
+              '`!draw` — Draw 1 card to hand (DM\'d privately)',
+              '`!draw 3` — Draw multiple cards',
+              '`!hand` — See your current hand (DM\'d privately)',
               '`!cheat 2` — Replace active flip with card #2 from your hand',
               '',
               'After a `!flip`, use `!hand` to see your card numbers,',
@@ -465,6 +477,10 @@ commands.help = async (msg) => {
           {
             name: '📚 Suits',
             value: `${SUIT_EMOJI.Tomes} Tomes  ${SUIT_EMOJI.Masks} Masks  ${SUIT_EMOJI.Rams} Rams  ${SUIT_EMOJI.Crows} Crows`,
+          },
+          {
+            name: 'Your Role',
+            value: fm ? '✅ You have the **Fate Master** role.' : '🙋 You are a **Player**.',
           },
         ),
     ],
@@ -480,7 +496,7 @@ async function handleButton(interaction) {
     return;
   }
 
-  const g      = getGuild(interaction.guildId);
+  const g = getGuild(interaction.guildId);
   const player = getPlayer(interaction.guildId, interaction.user.id, interaction.user.username);
 
   if (player.hand.length === 0) {
@@ -525,12 +541,12 @@ client.on('messageCreate', async (msg) => {
   // Resolve command (handle aliases)
   const aliases = {
     createtwistdeck: 'createTwistDeck',
-    twistshuffle:    'twistShuffle',
-    deckinfo:        'deckinfo',
-    clearhand:       'clearhand',
+    twistshuffle: 'twistShuffle',
+    deckinfo: 'deckinfo',
+    clearhand: 'clearhand',
   };
   const resolved = aliases[cmd] || cmd;
-  const handler  = commands[resolved];
+  const handler = commands[resolved];
   if (!handler) return;
 
   // Guild-only commands
@@ -539,13 +555,21 @@ client.on('messageCreate', async (msg) => {
     return;
   }
 
+  // FM-only check
+  if (FM_ONLY.has(resolved)) {
+    if (!isFateMaster(msg.member)) {
+      await msg.reply(`⚠️ Only someone with the **${FM_ROLE}** role can use \`!${resolved}\`.`);
+      return;
+    }
+  }
+
   try {
-    const g      = getGuild(msg.guild.id);
+    const g = getGuild(msg.guild.id);
     const player = getPlayer(msg.guild.id, msg.author.id, msg.author.username);
     await handler(msg, args, g, player);
   } catch (err) {
     console.error(`Error in !${resolved}:`, err);
-    await msg.reply('⚠️ Something went wrong. Check the bot logs.').catch(() => {});
+    await msg.reply('⚠️ Something went wrong. Check the bot logs.').catch(() => { });
   }
 });
 
