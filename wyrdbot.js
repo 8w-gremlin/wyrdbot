@@ -11,7 +11,7 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const PREFIX = '!';
 const STATE_FILE = path.join(__dirname, 'state.json');
 const FM_ROLE = 'Fate Master';
-const FM_ONLY = new Set(['flip', 'shuffle', 'reshuffle', 'deckinfo', 'twistShuffle', 'clearhand', 'createTwistDeck']);
+const FM_ONLY = new Set(['shuffle', 'reshuffle', 'deckinfo', 'twistShuffle', 'clearhand', 'createTwistDeck']);
 
 function isFateMaster(member) {
   if (!member) return false;
@@ -235,7 +235,14 @@ commands.createTwistDeck = async (msg, args, g, player) => {
   }
 
   player.twistSuits = suits;
-  player.twistDeck = shuffle(RANKS.map(rank => ({ rank, suit: suits.Defining, twistCard: true })));
+  // Defining: A,5,9,K (4 cards) · Ascendant: 4,8,Q (3) · Center: 3,7,J (3) · Descendant: 2,6,10 (3)
+  const twistCards = [
+    ...['A', '5', '9', 'K'].map(rank => ({ rank, suit: suits.Defining, twistCard: true })),
+    ...['4', '8', 'Q'].map(rank => ({ rank, suit: suits.Ascendant, twistCard: true })),
+    ...['3', '7', 'J'].map(rank => ({ rank, suit: suits.Center, twistCard: true })),
+    ...['2', '6', '10'].map(rank => ({ rank, suit: suits.Descendant, twistCard: true })),
+  ];
+  player.twistDeck = shuffle(twistCards);
   player.twistDiscard = [];
   player.hand = [];
   save();
