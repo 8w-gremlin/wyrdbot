@@ -100,6 +100,14 @@ function drawFromDiscard(g) {
   return g.discard.length > 0 ? g.discard.pop() : null;
 }
 
+const HAND_LIMIT = 5;
+
+async function warnHandLimit(channel, player) {
+  if (player.hand.length > HAND_LIMIT) {
+    await channel.send(`⚠️ **${player.name}** has ${player.hand.length} cards — over the hand limit of ${HAND_LIMIT}. Use \`!discard\` to discard down to ${HAND_LIMIT}.`);
+  }
+}
+
 // ── Embeds ────────────────────────────────────────────────────
 function flipEmbed(cards, actor, cheated = false) {
   const top = cards[0]; // sorted descending, so index 0 is highest/active
@@ -144,9 +152,12 @@ commands.flip = async (msg, args, g, player) => {
 
   const usingDiscard = g.countingCards === msg.author.id;
   const flipped = [];
+  let fateReshuffled = false;
   for (let i = 0; i < count; i++) {
+    const willReshuffle = !usingDiscard && g.deck.length === 0 && g.discard.length > 0;
     const c = usingDiscard ? drawFromDiscard(g) : drawFate(g);
     if (!c) { await msg.reply(usingDiscard ? 'No cards in the discard pile.' : 'No cards remain.'); return; }
+    if (willReshuffle) fateReshuffled = true;
     flipped.push(c);
   }
 
@@ -180,6 +191,7 @@ commands.flip = async (msg, args, g, player) => {
 
   const embed = flipEmbed(flipped, msg.author.username);
   await msg.reply({ embeds: [embed], components });
+  if (fateReshuffled) await msg.channel.send('The Fate Deck was reshuffled. Each player may use `!draw` to draw a card.');
 };
 
 // !draw [n]
@@ -205,9 +217,10 @@ commands.draw = async (msg, args, g, player) => {
 
   if (!drawn.length) { await msg.reply('Twist Deck and discard are empty.'); return; }
 
+  await warnHandLimit(msg.channel, player);
   const handLines = player.hand.map((c, i) => `${i + 1}. ${cardLabel(c)} (${cardValue(c)})`).join('\n');
   try {
-    await msg.author.send(`**Hand (${player.hand.length}):**\n${handLines}`);
+    await msg.author.send(`**Hand (${player.hand.length}/${HAND_LIMIT}):**\n${handLines}`);
     await msg.reply(`Drew ${drawn.length}. Check your DMs.`);
   } catch {
     await msg.reply(`Drew ${drawn.length}.\n**Your hand:**\n${handLines}`);
@@ -289,7 +302,7 @@ commands.shuffle = async (msg, args, g, _player) => {
   g.deck = shuffle([...g.deck, ...g.discard]);
   g.discard = [];
   save();
-  await msg.reply(`Reshuffled ${count} card(s). Deck: ${g.deck.length}`);
+  await msg.reply(`Reshuffled ${count} card(s). Deck: ${g.deck.length} — each player may use \`!draw\` to draw a card.`);
 };
 
 // !reshuffle
@@ -303,7 +316,7 @@ commands.reshuffle = async (msg, args, g, _player) => {
     p.pendingMarked = null;
   }
   save();
-  await msg.reply('@here Fate Deck reset. Draw a card to replenish your hand.');
+  await msg.reply('@here Fate Deck reset — each player may use `!draw` to draw a card.');
 };
 
 // !twistShuffle
@@ -339,7 +352,6 @@ commands.discard = async (msg, args, g, player) => {
 // !edt [card numbers...] — end of Dramatic Time: discard any cards, draw back up to 3 (hand limit 5)
 commands.edt = async (msg, args, g, player) => {
   const DRAW_TARGET = 3;
-  const HAND_LIMIT = 5;
 
   if (!player.twistSuits) { await msg.reply('No Twist Deck. Use `!createTwistDeck` first.'); return; }
 
@@ -433,9 +445,10 @@ commands.luckofthedraw = async (msg, args, g, player) => {
   }
   save();
   if (!drawn.length) { await msg.reply('Twist Deck and discard are empty.'); return; }
+  await warnHandLimit(msg.channel, player);
   const handLines = player.hand.map((c, i) => `${i + 1}. ${cardLabel(c)} (${cardValue(c)})`).join('\n');
   try {
-    await msg.author.send(`**Hand (${player.hand.length}):**\n${handLines}`);
+    await msg.author.send(`**Hand (${player.hand.length}/${HAND_LIMIT}):**\n${handLines}`);
     await msg.reply(`**Luck of the Draw** — ${msg.author.username} draws ${drawn.length} cards. Check your DMs.`);
   } catch {
     await msg.reply(`**Luck of the Draw** — drew ${drawn.length}.\n**Your hand:**\n${handLines}`);
