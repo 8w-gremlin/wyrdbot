@@ -74,13 +74,14 @@ function getGuild(guildId) {
 function getPlayer(guildId, userId, username) {
   const g = getGuild(guildId);
   if (!g.players[userId]) {
-    g.players[userId] = { name: username, hand: [], twistDeck: [], twistDiscard: [], twistSuits: null, usedMulligan: false, usedFiftyFifty: false, pendingMarked: null };
+    g.players[userId] = { name: username, hand: [], twistDeck: [], twistDiscard: [], twistSuits: null, usedMulligan: false, usedFiftyFifty: false, pendingMarked: null, handLimit: HAND_LIMIT };
     saveState(globalState);
   } else {
     g.players[userId].name = username;
     if (g.players[userId].usedMulligan === undefined) g.players[userId].usedMulligan = false;
     if (g.players[userId].usedFiftyFifty === undefined) g.players[userId].usedFiftyFifty = false;
     if (g.players[userId].pendingMarked === undefined) g.players[userId].pendingMarked = null;
+    if (g.players[userId].handLimit === undefined) g.players[userId].handLimit = HAND_LIMIT;
   }
   return g.players[userId];
 }
@@ -103,8 +104,8 @@ function drawFromDiscard(g) {
 const HAND_LIMIT = 5;
 
 async function warnHandLimit(channel, player) {
-  if (player.hand.length > HAND_LIMIT) {
-    await channel.send(`⚠️ **${player.name}** has ${player.hand.length} cards — over the hand limit of ${HAND_LIMIT}. Use \`!discard\` to discard down to ${HAND_LIMIT}.`);
+  if (player.hand.length > player.handLimit) {
+    await channel.send(`⚠️ **${player.name}** has ${player.hand.length} cards — over their hand limit of ${player.handLimit}. Use \`!discard\` to discard down to ${player.handLimit}.`);
   }
 }
 
@@ -220,7 +221,7 @@ commands.draw = async (msg, args, g, player) => {
   await warnHandLimit(msg.channel, player);
   const handLines = player.hand.map((c, i) => `${i + 1}. ${cardLabel(c)} (${cardValue(c)})`).join('\n');
   try {
-    await msg.author.send(`**Hand (${player.hand.length}/${HAND_LIMIT}):**\n${handLines}`);
+    await msg.author.send(`**Hand (${player.hand.length}/${player.handLimit}):**\n${handLines}`);
     await msg.reply(`Drew ${drawn.length}. Check your DMs.`);
   } catch {
     await msg.reply(`Drew ${drawn.length}.\n**Your hand:**\n${handLines}`);
@@ -371,8 +372,8 @@ commands.edt = async (msg, args, g, player) => {
     }
   }
 
-  // Draw back up to DRAW_TARGET, capped by HAND_LIMIT
-  const drawCount = Math.max(0, Math.min(DRAW_TARGET - player.hand.length, HAND_LIMIT - player.hand.length));
+  // Draw back up to DRAW_TARGET, capped by player's hand limit
+  const drawCount = Math.max(0, Math.min(DRAW_TARGET - player.hand.length, player.handLimit - player.hand.length));
   const drawn = [];
   for (let i = 0; i < drawCount; i++) {
     if (player.twistDeck.length === 0) {
@@ -389,18 +390,18 @@ commands.edt = async (msg, args, g, player) => {
   // Public announcement (no card details)
   let announcement = `**End of Dramatic Time** — ${msg.author.username}`;
   if (toDiscard.length > 0) announcement += ` discarded ${toDiscard.length} card(s) and`;
-  announcement += ` drew ${drawn.length} card(s). Hand: ${player.hand.length}/${HAND_LIMIT}.`;
-  if (player.hand.length >= HAND_LIMIT) announcement += ' *(at hand limit)*';
+  announcement += ` drew ${drawn.length} card(s). Hand: ${player.hand.length}/${player.handLimit}.`;
+  if (player.hand.length >= player.handLimit) announcement += ' *(at hand limit)*';
   await msg.channel.send(announcement);
 
   // Send updated hand privately
   if (player.hand.length === 0) { await msg.reply('Your hand is now empty.'); return; }
   const handLines = player.hand.map((c, i) => `${i + 1}. ${cardLabel(c)} (${cardValue(c)})`).join('\n');
   try {
-    await msg.author.send(`**Hand (${player.hand.length}/${HAND_LIMIT}):**\n${handLines}`);
+    await msg.author.send(`**Hand (${player.hand.length}/${player.handLimit}):**\n${handLines}`);
     await msg.reply('Check your DMs for your updated hand.');
   } catch {
-    await msg.reply(`**Your hand (${player.hand.length}/${HAND_LIMIT}):**\n${handLines}`);
+    await msg.reply(`**Your hand (${player.hand.length}/${player.handLimit}):**\n${handLines}`);
   }
 };
 
@@ -448,7 +449,7 @@ commands.luckofthedraw = async (msg, args, g, player) => {
   await warnHandLimit(msg.channel, player);
   const handLines = player.hand.map((c, i) => `${i + 1}. ${cardLabel(c)} (${cardValue(c)})`).join('\n');
   try {
-    await msg.author.send(`**Hand (${player.hand.length}/${HAND_LIMIT}):**\n${handLines}`);
+    await msg.author.send(`**Hand (${player.hand.length}/${player.handLimit}):**\n${handLines}`);
     await msg.reply(`**Luck of the Draw** — ${msg.author.username} draws ${drawn.length} cards. Check your DMs.`);
   } catch {
     await msg.reply(`**Luck of the Draw** — drew ${drawn.length}.\n**Your hand:**\n${handLines}`);
@@ -687,6 +688,31 @@ commands.newsession = async (msg, args, g, _player) => {
   await msg.reply('@here New session started. Fate Deck reset, all hands cleared, Twist Decks reshuffled. Use `!draw` to draw your starting hand.');
 };
 
+// !handsize [n] or !handsize @player n (FM only for others)
+commands.handsize = async (msg, args, g, player) => {
+  const fm = isFateMaster(msg.member);
+  const mention = msg.mentions.users.first();
+  let target = player;
+  let targetName = msg.author.username;
+  if (mention && mention.id !== msg.author.id) {
+    if (!fm) { await msg.reply(`Only the **${FM_ROLE}** can set another player's hand size.`); return; }
+    target = getPlayer(msg.guild.id, mention.id, mention.username);
+    targetName = mention.username;
+  }
+  const numStr = args.find(a => /^\d+$/.test(a));
+  const n = parseInt(numStr);
+  if (isNaN(n) || n < 1 || n > 10) {
+    await msg.reply(`**${targetName}**'s current hand limit: **${target.handLimit}**. Usage: \`!handsize <1–10>\` or \`!handsize @player <1–10>\` (FM only for others).`);
+    return;
+  }
+  target.handLimit = n;
+  save();
+  await msg.channel.send(`**${targetName}**'s hand limit set to **${n}** card${n === 1 ? '' : 's'}.`);
+  if (target.hand.length > n) {
+    await msg.channel.send(`⚠️ **${targetName}** has ${target.hand.length} cards — use \`!discard\` to discard down to ${n}.`);
+  }
+};
+
 // !test
 commands.test = async (msg, args, g, player) => {
   const suitLine = Object.entries(SUIT_EMOJI)
@@ -765,20 +791,48 @@ commands.help = async (msg) => {
         .setTitle('WyrdBot Commands')
         .addFields(
           {
-            name: 'Fate Deck 🔒',
-            value: '`!flip [n]` · `!shuffle` · `!reshuffle` · `!newsession` · `!deckinfo`',
+            name: 'Fate Deck',
+            value: [
+              '`!flip [n]` — flip up to 4 cards; highest is active',
+              '`!deckinfo` — deck and discard counts',
+            ].join('\n'),
           },
           {
             name: 'Fate Deck 🔒',
-            value: '`!clearhand`',
+            value: [
+              '`!shuffle` — reshuffle discard pile into deck',
+              '`!reshuffle` — full deck reset',
+              '`!newsession` — new session reset (keeps twist suits)',
+              '`!clearhand` — discard a player\'s hand',
+            ].join('\n'),
           },
           {
-            name: 'Players',
-            value: '`!createTwistDeck D A C De` · `!twistShuffle` · `!draw [n]` · `!hand` · `!cheat <n>` · `!discard <n>` · `!pile` · `!edt [cards...]`',
+            name: 'Your Hand',
+            value: [
+              '`!createTwistDeck D A C De` — set up your Twist Deck',
+              '`!twistShuffle` — reshuffle your Twist Deck',
+              '`!draw [n]` — draw cards into your hand (sent via DM)',
+              '`!hand` — view your current hand (sent via DM)',
+              '`!discard <n>` — discard card n from your hand',
+              '`!pile` — view your twist discard pile (sent via DM)',
+              '`!cheat <n>` — replace the active flip with card n',
+              '`!edt [cards...]` — end of Dramatic Time: discard then draw back up to 3',
+              '`!handsize [n]` — view or set your hand limit (FM: `!handsize @player n`)',
+            ].join('\n'),
           },
           {
             name: 'Abilities',
-            value: '`!luckofthedraw` · `!sidebar [n]` · `!usesidebar` · `!peek <n>` · `!markedkeep [order]` · `!markeddiscard` · `!countingcards <n>` · `!mulligan` · `!fiftyfifty`',
+            value: [
+              '`!luckofthedraw` — draw 2 cards',
+              '`!sidebar [n]` — set card n aside face-up (no arg = show current)',
+              '`!usesidebar` — cheat fate with the sidebar card',
+              '`!peek <n>` — discard card n, peek at top 3 of Fate Deck',
+              '`!markedkeep [order]` — put peeked cards back (optionally reordered)',
+              '`!markeddiscard` — discard all peeked cards',
+              '`!countingcards <n>` — discard a Twist Card, flip from discard this turn',
+              '`!mulligan` — once per session: discard hand, reshuffle, draw 3',
+              '`!fiftyfifty` — once per Dramatic Time: joker flip showdown',
+            ].join('\n'),
           },
           {
             name: 'Suits',
