@@ -66,7 +66,7 @@ function getGuild(guildId) {
     saveState(globalState);
   }
   const g = globalState[guildId];
-  if (g.sleevedCard === undefined) g.sleevedCard = null;
+  if (g.sidebar === undefined) g.sidebar = g.sleevedCard ?? null;
   if (g.countingCards === undefined) g.countingCards = null;
   return g;
 }
@@ -286,11 +286,9 @@ commands.reshuffle = async (msg, args, g, _player) => {
   g.deck = shuffle(buildDeck());
   g.discard = [];
   g.lastFlips = [];
-  g.sleevedCard = null;
+  g.sidebar = null;
   g.countingCards = null;
   for (const p of Object.values(g.players)) {
-    p.usedMulligan = false;
-    p.usedFiftyFifty = false;
     p.pendingMarked = null;
   }
   save();
@@ -377,12 +375,12 @@ commands.luckofthedraw = async (msg, args, g, player) => {
   }
 };
 
-// !sleeve [n] — place card n face up; no arg shows current sleeved card
-commands.sleeve = async (msg, args, g, player) => {
+// !sidebar [n] — set card n aside face up; no arg shows the current sidebar card
+commands.sidebar = async (msg, args, g, player) => {
   if (!args[0]) {
-    if (!g.sleevedCard) { await msg.reply('No card is currently sleeved. Use `!sleeve <card number>` to place one.'); return; }
-    const sc = g.sleevedCard;
-    await msg.reply(`**${sc.playerName}** has **${cardLabel(sc.card)} · ${cardValue(sc.card)}** face up. Use \`!usesleeve <your card number>\` to spend a card and cheat fate with it.`);
+    if (!g.sidebar) { await msg.reply('No card is currently set aside. Use `!sidebar <card number>` to place one.'); return; }
+    const sb = g.sidebar;
+    await msg.reply(`**${sb.playerName}** has **${cardLabel(sb.card)} · ${cardValue(sb.card)}** set aside. Use \`!usesidebar\` to send it to ${sb.playerName}'s twist discard.`);
     return;
   }
   if (player.hand.length === 0) { await msg.reply('Your hand is empty.'); return; }
@@ -391,33 +389,22 @@ commands.sleeve = async (msg, args, g, player) => {
     await msg.reply(`Invalid number. You have ${player.hand.length} card(s). Use \`!hand\` to check.`);
     return;
   }
-  const [sleeved] = player.hand.splice(cardNum - 1, 1);
-  g.sleevedCard = { playerId: msg.author.id, playerName: msg.author.username, card: sleeved };
+  const [set] = player.hand.splice(cardNum - 1, 1);
+  g.sidebar = { playerId: msg.author.id, playerName: msg.author.username, card: set };
   save();
-  await msg.reply(`**Cards Up a Sleeve** — ${msg.author.username} places **${cardLabel(sleeved)} · ${cardValue(sleeved)}** face up. Any player can use \`!usesleeve <card number>\` to spend a card from their hand and cheat fate with it.`);
+  await msg.reply(`**Cards Up a Sleeve** — ${msg.author.username} sets **${cardLabel(set)} · ${cardValue(set)}** aside face up. Any player can use \`!usesidebar\` to send it to ${msg.author.username}'s twist discard.`);
 };
 
-// !usesleeve <n> — spend card n from your hand, use the sleeved card to cheat the active flip
-commands.usesleeve = async (msg, args, g, player) => {
-  if (!g.sleevedCard) { await msg.reply('No card is currently sleeved. Use `!sleeve` to check.'); return; }
-  if (!g.lastFlips || g.lastFlips.length === 0) { await msg.reply('No active flip to cheat.'); return; }
-  const top = g.lastFlips[0];
-  if (top.rank === 'BJ') { await msg.reply('The Black Joker cannot be cheated.'); return; }
-  if (!args[0]) { await msg.reply('Usage: `!usesleeve <card number from your hand>`'); return; }
-  if (player.hand.length === 0) { await msg.reply('Your hand is empty.'); return; }
-  const cardNum = parseInt(args[0]);
-  if (isNaN(cardNum) || cardNum < 1 || cardNum > player.hand.length) {
-    await msg.reply(`Invalid number. You have ${player.hand.length} card(s). Use \`!hand\` to check.`);
-    return;
-  }
-  const [spent] = player.hand.splice(cardNum - 1, 1);
-  const { card: sleevedCard, playerName: sleevedBy } = g.sleevedCard;
-  player.twistDiscard.push(spent);
-  g.discard.push(top);
-  g.lastFlips[0] = sleevedCard;
-  g.sleevedCard = null;
+// !usesidebar — send the sidebar card to the owning player's twist discard
+commands.usesidebar = async (msg, args, g, _player) => {
+  if (!g.sidebar) { await msg.reply('No card is currently set aside. Use `!sidebar` to check.'); return; }
+  const { playerId, playerName, card } = g.sidebar;
+  const owner = g.players[playerId];
+  if (!owner) { await msg.reply('The card owner has no player record.'); return; }
+  owner.twistDiscard.push(card);
+  g.sidebar = null;
   save();
-  await msg.reply({ content: `**${msg.author.username}** uses ${sleevedBy}'s sleeved card, spending ${cardLabel(spent)}.`, embeds: [flipEmbed(g.lastFlips, msg.author.username, true)] });
+  await msg.reply(`**Cards Up a Sleeve** — ${msg.author.username} sends **${cardLabel(card)} · ${cardValue(card)}** to ${playerName}'s twist discard.`);
 };
 
 // !markedcards <n> — discard card n, peek at top 3 of Fate Deck
@@ -674,7 +661,7 @@ commands.help = async (msg) => {
           },
           {
             name: 'Abilities',
-            value: '`!luckofthedraw` · `!sleeve [n]` · `!usesleeve <n>` · `!markedcards <n>` · `!markedkeep [order]` · `!markeddiscard` · `!countingcards <n>` · `!mulligan` · `!fiftyfifty`',
+            value: '`!luckofthedraw` · `!sidebar [n]` · `!usesidebar` · `!markedcards <n>` · `!markedkeep [order]` · `!markeddiscard` · `!countingcards <n>` · `!mulligan` · `!fiftyfifty`',
           },
           {
             name: 'Suits',
