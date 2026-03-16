@@ -11,7 +11,7 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const PREFIX = '!';
 const STATE_FILE = path.join(__dirname, 'state.json');
 const FM_ROLE = 'Fate Master';
-const FM_ONLY = new Set(['shuffle', 'reshuffle', 'clearhand']);
+const FM_ONLY = new Set(['shuffle', 'reshuffle', 'clearhand', 'newsession']);
 
 function isFateMaster(member) {
   if (!member) return false;
@@ -585,6 +585,36 @@ commands.fiftyfifty = async (msg, args, g, player) => {
   await msg.reply({ content: `**Fifty-Fifty Chance** — both Jokers found. The FM's pick is shuffled back into the deck blind.`, embeds: [flipEmbed([playerJoker], msg.author.username)] });
 };
 
+// !newsession — FM only: full reset, preserving each player's twist deck suit assignments
+commands.newsession = async (msg, args, g, _player) => {
+  g.deck = shuffle(buildDeck());
+  g.discard = [];
+  g.lastFlips = [];
+  g.sidebar = null;
+  g.countingCards = null;
+  for (const p of Object.values(g.players)) {
+    p.hand = [];
+    p.twistDiscard = [];
+    p.usedMulligan = false;
+    p.usedFiftyFifty = false;
+    p.pendingMarked = null;
+    // Rebuild twist deck from suits if the player has them, otherwise clear
+    if (p.twistSuits) {
+      const s = p.twistSuits;
+      p.twistDeck = shuffle([
+        ...['A', '5', '9', 'K'].map(rank => ({ rank, suit: s.Defining, twistCard: true })),
+        ...['4', '8', 'Q'].map(rank => ({ rank, suit: s.Ascendant, twistCard: true })),
+        ...['3', '7', 'J'].map(rank => ({ rank, suit: s.Center, twistCard: true })),
+        ...['2', '6', '10'].map(rank => ({ rank, suit: s.Descendant, twistCard: true })),
+      ]);
+    } else {
+      p.twistDeck = [];
+    }
+  }
+  save();
+  await msg.reply('@here New session started. Fate Deck reset, all hands cleared, Twist Decks reshuffled. Use `!draw` to draw your starting hand.');
+};
+
 // !test
 commands.test = async (msg, args, g, player) => {
   const suitLine = Object.entries(SUIT_EMOJI)
@@ -664,7 +694,7 @@ commands.help = async (msg) => {
         .addFields(
           {
             name: 'Fate Deck 🔒',
-            value: '`!flip [n]` · `!shuffle` · `!reshuffle` · `!deckinfo`',
+            value: '`!flip [n]` · `!shuffle` · `!reshuffle` · `!newsession` · `!deckinfo`',
           },
           {
             name: 'Fate Deck 🔒',
