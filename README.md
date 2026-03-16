@@ -7,21 +7,22 @@ A Discord bot for playing Through the Breach by Wyrd Games. Handles the full Fat
 
 ## Commands
 
-| Command | Description |
-|---|---|
-| `!flip` | Flip a card from the Fate Deck |
-| `!flip 3` | Flip multiple cards |
-| `!shuffle` | Reshuffle discard pile into deck |
-| `!reshuffle` | Full reset — new deck, notifies everyone to draw |
-| `!deckinfo` | Show deck/discard counts and last flip |
-| `!createTwistDeck Rams Crows Masks Tomes` | Set up your personal Twist Deck |
-| `!draw` | Draw 1 card to your hand (sent privately via DM) |
-| `!draw 3` | Draw multiple cards |
-| `!hand` | See your current hand (sent privately via DM) |
-| `!cheat 2` | Replace the active flip with card #2 from your hand |
-| `!clearhand` | Discard all cards from your hand |
-| `!twistShuffle` | Reshuffle your personal Twist Deck |
-| `!help` | Show all commands |
+| Command | Who | Description |
+|---|---|---|
+| `!flip` | Anyone | Flip a card from the Fate Deck |
+| `!flip 3` | Anyone | Flip up to 4 cards — highest value is the active result |
+| `!deckinfo` | Anyone | Show deck/discard counts and last flip |
+| `!shuffle` | Fate Master | Reshuffle discard pile into deck |
+| `!reshuffle` | Fate Master | Full reset — new deck, notifies everyone to draw |
+| `!createTwistDeck Rams Crows Masks Tomes` | Anyone | Set up your personal Twist Deck |
+| `!draw` | Anyone | Draw 1 card to your hand (sent privately via DM) |
+| `!draw 3` | Anyone | Draw multiple cards |
+| `!hand` | Anyone | See your current hand (sent privately via DM) |
+| `!cheat 2` | Anyone | Replace the active flip with card #2 from your hand |
+| `!discard` | Anyone | See your twist discard pile (sent privately via DM) |
+| `!clearhand` | Fate Master | Discard all cards from a player's hand |
+| `!twistShuffle` | Anyone | Reshuffle your personal Twist Deck |
+| `!help` | Anyone | Show all commands |
 
 **Suits:** 📚 Tomes · 🎭 Masks · 🐏 Rams · 🐦 Crows
 
@@ -101,11 +102,11 @@ npm start
 
 ## How Cheating Fate Works
 
-1. The Fate Master calls `!flip`
-2. A card appears in the channel with a **Cheat Fate** button
-3. The player clicks the button — the bot DMs them their hand with card numbers
+1. Any player calls `!flip` (up to 4 cards — highest value is the active result)
+2. A card appears in the channel with a **Cheat Fate** button (only shown if the player has cards in hand)
+3. The player clicks the button — they see their hand with card numbers (ephemeral, only visible to them)
 4. The player types `!cheat 2` (or whichever number) in the channel
-5. The flip is replaced with their chosen hand card; the old flip goes to their hand
+5. The flip is replaced with their chosen hand card; the old flip goes to the fate discard; the used hand card goes to the twist discard
 
 > The **Black Joker** can never be cheated.
 
