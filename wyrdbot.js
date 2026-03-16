@@ -545,7 +545,7 @@ commands.markedkeep = async (msg, args, g, player) => {
   for (let i = order.length - 1; i >= 0; i--) g.deck.push(peek[order[i]]);
   player.pendingMarked = null;
   save();
-  await msg.reply(`**Marked Cards** — ${msg.author.username} puts the cards back. Top of deck: **${cardLabel(peek[order[0]])} · ${cardValue(peek[order[0]])}**.`);
+  await msg.reply(`**Marked Cards** — ${msg.author.username} puts the cards back.`);
 };
 
 // !markeddiscard — discard all peeked cards from the Fate Deck
