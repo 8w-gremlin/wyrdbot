@@ -422,9 +422,9 @@ commands.usesidebar = async (msg, args, g, _player) => {
   await msg.reply({ content: `**${msg.author.username}** uses the sidebar — **${cardLabel(sidebarCard)}** goes to ${playerName}'s twist discard.`, embeds: [flipEmbed(g.lastFlips, msg.author.username, true)] });
 };
 
-// !markedcards <n> — discard card n, peek at top 3 of Fate Deck
-commands.markedcards = async (msg, args, g, player) => {
-  if (!args[0]) { await msg.reply('Usage: `!markedcards <card number to discard>`'); return; }
+// !peek <n> — discard card n, peek at top 3 of Fate Deck (Marked Cards ability)
+commands.peek = async (msg, args, g, player) => {
+  if (!args[0]) { await msg.reply('Usage: `!peek <card number to discard>`'); return; }
   if (player.hand.length === 0) { await msg.reply('Your hand is empty.'); return; }
   const cardNum = parseInt(args[0]);
   if (isNaN(cardNum) || cardNum < 1 || cardNum > player.hand.length) {
@@ -440,18 +440,21 @@ commands.markedcards = async (msg, args, g, player) => {
   player.pendingMarked = peek;
   save();
   const lines = peek.map((c, i) => `${i + 1}. ${cardLabel(c)} · ${cardValue(c)}`).join('\n');
+  // Always announce publicly so the table knows a peek is happening
+  await msg.channel.send(`**Marked Cards** — ${msg.author.username} discards ${cardLabel(discarded)} and peeks at the top ${available} card(s) of the Fate Deck. Results sent privately.`);
   try {
     await msg.author.send(`**Marked Cards** — top ${available} of the Fate Deck (1 = next flip):\n${lines}\n\nUse \`!markedkeep\` to put back in the same order, \`!markedkeep 3 1 2\` to reorder (1 = top), or \`!markeddiscard\` to discard all ${available}.`);
-    await msg.reply(`**Marked Cards** — ${msg.author.username} discards ${cardLabel(discarded)} and peeks at the top ${available} card(s). Check your DMs.`);
   } catch {
-    await msg.reply(`**Marked Cards** — discarded ${cardLabel(discarded)}.\n**Top ${available}:**\n${lines}\n\nUse \`!markedkeep [order]\` to put back, or \`!markeddiscard\` to discard all.`);
+    await msg.author.send(`**Marked Cards** — top ${available} of the Fate Deck (1 = next flip):\n${lines}\n\nUse \`!markedkeep\` to put back or \`!markeddiscard\` to discard all.`).catch(async () => {
+      await msg.reply(`**Top ${available}:**\n${lines}\n\nUse \`!markedkeep [order]\` to put back, or \`!markeddiscard\` to discard all.`);
+    });
   }
 };
 
 // !markedkeep [order] — put peeked cards back in given order (default: same)
 commands.markedkeep = async (msg, args, g, player) => {
   if (!player.pendingMarked || player.pendingMarked.length === 0) {
-    await msg.reply('No pending Marked Cards. Use `!markedcards <n>` first.');
+    await msg.reply('No pending Marked Cards. Use `!peek <n>` first.');
     return;
   }
   const peek = player.pendingMarked;
@@ -478,7 +481,7 @@ commands.markedkeep = async (msg, args, g, player) => {
 // !markeddiscard — discard all peeked cards from the Fate Deck
 commands.markeddiscard = async (msg, args, g, player) => {
   if (!player.pendingMarked || player.pendingMarked.length === 0) {
-    await msg.reply('No pending Marked Cards. Use `!markedcards <n>` first.');
+    await msg.reply('No pending Marked Cards. Use `!peek <n>` first.');
     return;
   }
   const n = player.pendingMarked.length;
@@ -706,7 +709,7 @@ commands.help = async (msg) => {
           },
           {
             name: 'Abilities',
-            value: '`!luckofthedraw` · `!sidebar [n]` · `!usesidebar` · `!markedcards <n>` · `!markedkeep [order]` · `!markeddiscard` · `!countingcards <n>` · `!mulligan` · `!fiftyfifty`',
+            value: '`!luckofthedraw` · `!sidebar [n]` · `!usesidebar` · `!peek <n>` · `!markedkeep [order]` · `!markeddiscard` · `!countingcards <n>` · `!mulligan` · `!fiftyfifty`',
           },
           {
             name: 'Suits',
