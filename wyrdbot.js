@@ -336,6 +336,62 @@ commands.discard = async (msg, args, g, player) => {
   await msg.reply(`${msg.author.username} discarded ${cardLabel(discarded)} · ${cardValue(discarded)}.`);
 };
 
+// !edt [card numbers...] — end of Dramatic Time: discard any cards, draw back up to 3 (hand limit 5)
+commands.edt = async (msg, args, g, player) => {
+  const DRAW_TARGET = 3;
+  const HAND_LIMIT = 5;
+
+  if (!player.twistSuits) { await msg.reply('No Twist Deck. Use `!createTwistDeck` first.'); return; }
+
+  // Parse and validate cards to discard
+  const toDiscard = args.map(a => parseInt(a)).filter(n => !isNaN(n));
+  if (toDiscard.length > 0) {
+    const sorted = [...new Set(toDiscard)].sort((a, b) => b - a); // dedupe, descending
+    for (const n of sorted) {
+      if (n < 1 || n > player.hand.length) {
+        await msg.reply(`Invalid card number ${n}. You have ${player.hand.length} card(s). Use \`!hand\` to check.`);
+        return;
+      }
+    }
+    for (const n of sorted) {
+      const [discarded] = player.hand.splice(n - 1, 1);
+      player.twistDiscard.push(discarded);
+    }
+  }
+
+  // Draw back up to DRAW_TARGET, capped by HAND_LIMIT
+  const drawCount = Math.max(0, Math.min(DRAW_TARGET - player.hand.length, HAND_LIMIT - player.hand.length));
+  const drawn = [];
+  for (let i = 0; i < drawCount; i++) {
+    if (player.twistDeck.length === 0) {
+      if (player.twistDiscard.length === 0) break;
+      player.twistDeck = shuffle([...player.twistDiscard]);
+      player.twistDiscard = [];
+    }
+    const c = player.twistDeck.pop();
+    player.hand.push(c);
+    drawn.push(c);
+  }
+  save();
+
+  // Public announcement (no card details)
+  let announcement = `**End of Dramatic Time** — ${msg.author.username}`;
+  if (toDiscard.length > 0) announcement += ` discarded ${toDiscard.length} card(s) and`;
+  announcement += ` drew ${drawn.length} card(s). Hand: ${player.hand.length}/${HAND_LIMIT}.`;
+  if (player.hand.length >= HAND_LIMIT) announcement += ' *(at hand limit)*';
+  await msg.channel.send(announcement);
+
+  // Send updated hand privately
+  if (player.hand.length === 0) { await msg.reply('Your hand is now empty.'); return; }
+  const handLines = player.hand.map((c, i) => `${i + 1}. ${cardLabel(c)} (${cardValue(c)})`).join('\n');
+  try {
+    await msg.author.send(`**Hand (${player.hand.length}/${HAND_LIMIT}):**\n${handLines}`);
+    await msg.reply('Check your DMs for your updated hand.');
+  } catch {
+    await msg.reply(`**Your hand (${player.hand.length}/${HAND_LIMIT}):**\n${handLines}`);
+  }
+};
+
 // !pile — show player's own twist discard pile
 commands.pile = async (msg, args, g, player) => {
   if (player.twistDiscard.length === 0) { await msg.reply('Your twist discard is empty.'); return; }
@@ -705,7 +761,7 @@ commands.help = async (msg) => {
           },
           {
             name: 'Players',
-            value: '`!createTwistDeck D A C De` · `!twistShuffle` · `!draw [n]` · `!hand` · `!cheat <n>` · `!discard <n>` · `!pile`',
+            value: '`!createTwistDeck D A C De` · `!twistShuffle` · `!draw [n]` · `!hand` · `!cheat <n>` · `!discard <n>` · `!pile` · `!edt [cards...]`',
           },
           {
             name: 'Abilities',
