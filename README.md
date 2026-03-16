@@ -3,6 +3,8 @@
 
 A Discord bot for playing Through the Breach by Wyrd Games. Handles the full Fate Deck, personal Twist Decks, private hands (via DM), and Cheating Fate.
 
+**Want to add WyrdBot to your server?** See the [Setup Guide](SETUP.md).
+
 ---
 
 ## Commands
