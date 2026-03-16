@@ -157,14 +157,25 @@ commands.flip = async (msg, args, g, player) => {
 
   const top = flipped[0]; // highest value = active
   const components = [];
-  if (top.rank !== 'BJ' && player.hand.length > 0) {
-    components.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`cheat_${msg.author.id}`)
-        .setLabel('Cheat Fate')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('🃏')
-    ));
+  if (top.rank !== 'BJ') {
+    const buttons = [];
+    if (player.hand.length > 0) {
+      buttons.push(
+        new ButtonBuilder()
+          .setCustomId(`cheat_${msg.author.id}`)
+          .setLabel('Cheat Fate')
+          .setStyle(ButtonStyle.Primary)
+      );
+    }
+    if (g.sidebar) {
+      buttons.push(
+        new ButtonBuilder()
+          .setCustomId('usesidebar')
+          .setLabel(`Use Sidebar (${g.sidebar.playerName})`)
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
+    if (buttons.length > 0) components.push(new ActionRowBuilder().addComponents(...buttons));
   }
 
   const embed = flipEmbed(flipped, msg.author.username);
@@ -395,16 +406,20 @@ commands.sidebar = async (msg, args, g, player) => {
   await msg.reply(`**Cards Up a Sleeve** — ${msg.author.username} sets **${cardLabel(set)} · ${cardValue(set)}** aside face up. Any player can use \`!usesidebar\` to send it to ${msg.author.username}'s twist discard.`);
 };
 
-// !usesidebar — send the sidebar card to the owning player's twist discard
+// !usesidebar — cheat the active flip using the sidebar card; card goes to owner's twist discard
 commands.usesidebar = async (msg, args, g, _player) => {
   if (!g.sidebar) { await msg.reply('No card is currently set aside. Use `!sidebar` to check.'); return; }
-  const { playerId, playerName, card } = g.sidebar;
+  if (!g.lastFlips || g.lastFlips.length === 0) { await msg.reply('No active flip to cheat.'); return; }
+  const top = g.lastFlips[0];
+  if (top.rank === 'BJ') { await msg.reply('The Black Joker cannot be cheated.'); return; }
+  const { playerId, playerName, card: sidebarCard } = g.sidebar;
   const owner = g.players[playerId];
-  if (!owner) { await msg.reply('The card owner has no player record.'); return; }
-  owner.twistDiscard.push(card);
+  g.discard.push(top);
+  g.lastFlips[0] = sidebarCard;
+  if (owner) owner.twistDiscard.push(sidebarCard);
   g.sidebar = null;
   save();
-  await msg.reply(`**Cards Up a Sleeve** — ${msg.author.username} sends **${cardLabel(card)} · ${cardValue(card)}** to ${playerName}'s twist discard.`);
+  await msg.reply({ content: `**${msg.author.username}** uses the sidebar — **${cardLabel(sidebarCard)}** goes to ${playerName}'s twist discard.`, embeds: [flipEmbed(g.lastFlips, msg.author.username, true)] });
 };
 
 // !markedcards <n> — discard card n, peek at top 3 of Fate Deck
@@ -681,6 +696,33 @@ commands.help = async (msg) => {
 // ── Button handler ────────────────────────────────────────────
 async function handleButton(interaction) {
   const [action, targetUserId] = interaction.customId.split('_');
+
+  if (action === 'usesidebar') {
+    const g = getGuild(interaction.guildId);
+    if (!g.sidebar) {
+      await interaction.reply({ content: 'No sidebar card available.', ephemeral: true });
+      return;
+    }
+    if (!g.lastFlips || g.lastFlips.length === 0) {
+      await interaction.reply({ content: 'No active flip.', ephemeral: true });
+      return;
+    }
+    const top = g.lastFlips[0];
+    if (top.rank === 'BJ') {
+      await interaction.reply({ content: 'The Black Joker cannot be cheated.', ephemeral: true });
+      return;
+    }
+    const { playerId, playerName, card: sidebarCard } = g.sidebar;
+    const owner = g.players[playerId];
+    g.discard.push(top);
+    g.lastFlips[0] = sidebarCard;
+    if (owner) owner.twistDiscard.push(sidebarCard);
+    g.sidebar = null;
+    save();
+    await interaction.reply({ content: `**${interaction.user.username}** uses the sidebar — **${cardLabel(sidebarCard)}** goes to ${playerName}'s twist discard.`, embeds: [flipEmbed(g.lastFlips, interaction.user.username, true)] });
+    return;
+  }
+
   if (action !== 'cheat') return;
   if (interaction.user.id !== targetUserId) {
     await interaction.reply({ content: 'Only the player who flipped can cheat fate.', ephemeral: true });
