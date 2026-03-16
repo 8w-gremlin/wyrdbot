@@ -324,8 +324,23 @@ commands.deckinfo = async (msg, args, g, player) => {
   await msg.reply(`Deck: ${g.deck.length} · Discard: ${g.discard.length} · Last flip: ${last}`);
 };
 
-// !discard — show player's own twist discard pile
+// !discard <n> — discard card n from hand to twist discard
 commands.discard = async (msg, args, g, player) => {
+  if (!args[0]) { await msg.reply('Usage: `!discard <card number>` — use `!hand` to see your cards.'); return; }
+  if (player.hand.length === 0) { await msg.reply('Your hand is empty.'); return; }
+  const cardNum = parseInt(args[0]);
+  if (isNaN(cardNum) || cardNum < 1 || cardNum > player.hand.length) {
+    await msg.reply(`Invalid number. You have ${player.hand.length} card(s). Use \`!hand\` to check.`);
+    return;
+  }
+  const [discarded] = player.hand.splice(cardNum - 1, 1);
+  player.twistDiscard.push(discarded);
+  save();
+  await msg.reply(`${msg.author.username} discarded ${cardLabel(discarded)} · ${cardValue(discarded)}.`);
+};
+
+// !pile — show player's own twist discard pile
+commands.pile = async (msg, args, g, player) => {
   if (player.twistDiscard.length === 0) { await msg.reply('Your twist discard is empty.'); return; }
   const sorted = [...player.twistDiscard].sort((a, b) => cardValue(b) - cardValue(a));
   const lines = sorted.map(c => `${cardLabel(c)} · ${cardValue(c)}`).join('\n');
@@ -389,7 +404,7 @@ commands.help = async (msg) => {
           },
           {
             name: 'Players',
-            value: '`!createTwistDeck D A C De` · `!twistShuffle` · `!draw [n]` · `!hand` · `!cheat <n>` · `!discard`',
+            value: '`!createTwistDeck D A C De` · `!twistShuffle` · `!draw [n]` · `!hand` · `!cheat <n>` · `!discard <n>` · `!pile`',
           },
           {
             name: 'Suits',

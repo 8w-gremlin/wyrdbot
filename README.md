@@ -21,7 +21,8 @@ A Discord bot for playing Through the Breach by Wyrd Games. Handles the full Fat
 | `!draw 3` | Anyone | Draw multiple cards |
 | `!hand` | Anyone | See your current hand (sent privately via DM) |
 | `!cheat 2` | Anyone | Replace the active flip with card #2 from your hand |
-| `!discard` | Anyone | See your twist discard pile (sent privately via DM) |
+| `!discard 2` | Anyone | Discard card #2 from your hand to your twist discard pile |
+| `!pile` | Anyone | See your twist discard pile (sent privately via DM) |
 | `!clearhand` | Fate Master | Discard all cards from a player's hand |
 | `!twistShuffle` | Anyone | Reshuffle your personal Twist Deck |
 | `!help` | Anyone | Show all commands |
