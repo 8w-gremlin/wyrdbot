@@ -62,19 +62,25 @@ const globalState = loadState();
 
 function getGuild(guildId) {
   if (!globalState[guildId]) {
-    globalState[guildId] = { deck: shuffle(buildDeck()), discard: [], lastFlips: [], players: {} };
+    globalState[guildId] = { deck: shuffle(buildDeck()), discard: [], lastFlips: [], players: {}, sleevedCard: null, countingCards: null };
     saveState(globalState);
   }
-  return globalState[guildId];
+  const g = globalState[guildId];
+  if (g.sleevedCard === undefined) g.sleevedCard = null;
+  if (g.countingCards === undefined) g.countingCards = null;
+  return g;
 }
 
 function getPlayer(guildId, userId, username) {
   const g = getGuild(guildId);
   if (!g.players[userId]) {
-    g.players[userId] = { name: username, hand: [], twistDeck: [], twistDiscard: [], twistSuits: null };
+    g.players[userId] = { name: username, hand: [], twistDeck: [], twistDiscard: [], twistSuits: null, usedMulligan: false, usedFiftyFifty: false, pendingMarked: null };
     saveState(globalState);
   } else {
     g.players[userId].name = username;
+    if (g.players[userId].usedMulligan === undefined) g.players[userId].usedMulligan = false;
+    if (g.players[userId].usedFiftyFifty === undefined) g.players[userId].usedFiftyFifty = false;
+    if (g.players[userId].pendingMarked === undefined) g.players[userId].pendingMarked = null;
   }
   return g.players[userId];
 }
@@ -88,6 +94,10 @@ function drawFate(g) {
     g.discard = [];
   }
   return g.deck.pop();
+}
+
+function drawFromDiscard(g) {
+  return g.discard.length > 0 ? g.discard.pop() : null;
 }
 
 // ── Embeds ────────────────────────────────────────────────────
@@ -132,10 +142,11 @@ commands.flip = async (msg, args, g, player) => {
   for (const c of g.lastFlips) g.discard.push(c);
   g.lastFlips = [];
 
+  const usingDiscard = g.countingCards === msg.author.id;
   const flipped = [];
   for (let i = 0; i < count; i++) {
-    const c = drawFate(g);
-    if (!c) { await msg.reply('No cards remain.'); return; }
+    const c = usingDiscard ? drawFromDiscard(g) : drawFate(g);
+    if (!c) { await msg.reply(usingDiscard ? 'No cards in the discard pile.' : 'No cards remain.'); return; }
     flipped.push(c);
   }
 
@@ -275,6 +286,13 @@ commands.reshuffle = async (msg, args, g, _player) => {
   g.deck = shuffle(buildDeck());
   g.discard = [];
   g.lastFlips = [];
+  g.sleevedCard = null;
+  g.countingCards = null;
+  for (const p of Object.values(g.players)) {
+    p.usedMulligan = false;
+    p.usedFiftyFifty = false;
+    p.pendingMarked = null;
+  }
   save();
   await msg.reply('@here Fate Deck reset. Draw a card to replenish your hand.');
 };
@@ -329,6 +347,240 @@ commands.clearhand = async (msg, args, g, player) => {
   player.hand = [];
   save();
   await msg.reply(`Discarded ${count} card(s) from ${msg.author.username}'s hand.`);
+};
+
+// ── Abilities ─────────────────────────────────────────────────
+
+// !luckofthedraw — draw 2 cards instead of 1 when the Fate Deck is reshuffled
+commands.luckofthedraw = async (msg, args, g, player) => {
+  if (!player.twistSuits) { await msg.reply('No Twist Deck. Use `!createTwistDeck` first.'); return; }
+  const drawn = [];
+  for (let i = 0; i < 2; i++) {
+    if (player.twistDeck.length === 0) {
+      if (player.twistDiscard.length === 0) break;
+      player.twistDeck = shuffle([...player.twistDiscard]);
+      player.twistDiscard = [];
+      await msg.channel.send(`${msg.author.username}'s Twist Deck reshuffled.`);
+    }
+    const c = player.twistDeck.pop();
+    player.hand.push(c);
+    drawn.push(c);
+  }
+  save();
+  if (!drawn.length) { await msg.reply('Twist Deck and discard are empty.'); return; }
+  const handLines = player.hand.map((c, i) => `${i + 1}. ${cardLabel(c)} (${cardValue(c)})`).join('\n');
+  try {
+    await msg.author.send(`**Hand (${player.hand.length}):**\n${handLines}`);
+    await msg.reply(`**Luck of the Draw** — ${msg.author.username} draws ${drawn.length} cards. Check your DMs.`);
+  } catch {
+    await msg.reply(`**Luck of the Draw** — drew ${drawn.length}.\n**Your hand:**\n${handLines}`);
+  }
+};
+
+// !sleeve [n] — place card n face up; no arg shows current sleeved card
+commands.sleeve = async (msg, args, g, player) => {
+  if (!args[0]) {
+    if (!g.sleevedCard) { await msg.reply('No card is currently sleeved. Use `!sleeve <card number>` to place one.'); return; }
+    const sc = g.sleevedCard;
+    await msg.reply(`**${sc.playerName}** has **${cardLabel(sc.card)} · ${cardValue(sc.card)}** face up. Use \`!usesleeve <your card number>\` to spend a card and cheat fate with it.`);
+    return;
+  }
+  if (player.hand.length === 0) { await msg.reply('Your hand is empty.'); return; }
+  const cardNum = parseInt(args[0]);
+  if (isNaN(cardNum) || cardNum < 1 || cardNum > player.hand.length) {
+    await msg.reply(`Invalid number. You have ${player.hand.length} card(s). Use \`!hand\` to check.`);
+    return;
+  }
+  const [sleeved] = player.hand.splice(cardNum - 1, 1);
+  g.sleevedCard = { playerId: msg.author.id, playerName: msg.author.username, card: sleeved };
+  save();
+  await msg.reply(`**Cards Up a Sleeve** — ${msg.author.username} places **${cardLabel(sleeved)} · ${cardValue(sleeved)}** face up. Any player can use \`!usesleeve <card number>\` to spend a card from their hand and cheat fate with it.`);
+};
+
+// !usesleeve <n> — spend card n from your hand, use the sleeved card to cheat the active flip
+commands.usesleeve = async (msg, args, g, player) => {
+  if (!g.sleevedCard) { await msg.reply('No card is currently sleeved. Use `!sleeve` to check.'); return; }
+  if (!g.lastFlips || g.lastFlips.length === 0) { await msg.reply('No active flip to cheat.'); return; }
+  const top = g.lastFlips[0];
+  if (top.rank === 'BJ') { await msg.reply('The Black Joker cannot be cheated.'); return; }
+  if (!args[0]) { await msg.reply('Usage: `!usesleeve <card number from your hand>`'); return; }
+  if (player.hand.length === 0) { await msg.reply('Your hand is empty.'); return; }
+  const cardNum = parseInt(args[0]);
+  if (isNaN(cardNum) || cardNum < 1 || cardNum > player.hand.length) {
+    await msg.reply(`Invalid number. You have ${player.hand.length} card(s). Use \`!hand\` to check.`);
+    return;
+  }
+  const [spent] = player.hand.splice(cardNum - 1, 1);
+  const { card: sleevedCard, playerName: sleevedBy } = g.sleevedCard;
+  player.twistDiscard.push(spent);
+  g.discard.push(top);
+  g.lastFlips[0] = sleevedCard;
+  g.sleevedCard = null;
+  save();
+  await msg.reply({ content: `**${msg.author.username}** uses ${sleevedBy}'s sleeved card, spending ${cardLabel(spent)}.`, embeds: [flipEmbed(g.lastFlips, msg.author.username, true)] });
+};
+
+// !markedcards <n> — discard card n, peek at top 3 of Fate Deck
+commands.markedcards = async (msg, args, g, player) => {
+  if (!args[0]) { await msg.reply('Usage: `!markedcards <card number to discard>`'); return; }
+  if (player.hand.length === 0) { await msg.reply('Your hand is empty.'); return; }
+  const cardNum = parseInt(args[0]);
+  if (isNaN(cardNum) || cardNum < 1 || cardNum > player.hand.length) {
+    await msg.reply(`Invalid number. You have ${player.hand.length} card(s). Use \`!hand\` to check.`);
+    return;
+  }
+  const available = Math.min(3, g.deck.length);
+  if (available === 0) { await msg.reply('The Fate Deck is empty.'); return; }
+  const [discarded] = player.hand.splice(cardNum - 1, 1);
+  player.twistDiscard.push(discarded);
+  // Peek at top n cards (highest index = top); store in display order (top first)
+  const peek = g.deck.slice(g.deck.length - available).reverse();
+  player.pendingMarked = peek;
+  save();
+  const lines = peek.map((c, i) => `${i + 1}. ${cardLabel(c)} · ${cardValue(c)}`).join('\n');
+  try {
+    await msg.author.send(`**Marked Cards** — top ${available} of the Fate Deck (1 = next flip):\n${lines}\n\nUse \`!markedkeep\` to put back in the same order, \`!markedkeep 3 1 2\` to reorder (1 = top), or \`!markeddiscard\` to discard all ${available}.`);
+    await msg.reply(`**Marked Cards** — ${msg.author.username} discards ${cardLabel(discarded)} and peeks at the top ${available} card(s). Check your DMs.`);
+  } catch {
+    await msg.reply(`**Marked Cards** — discarded ${cardLabel(discarded)}.\n**Top ${available}:**\n${lines}\n\nUse \`!markedkeep [order]\` to put back, or \`!markeddiscard\` to discard all.`);
+  }
+};
+
+// !markedkeep [order] — put peeked cards back in given order (default: same)
+commands.markedkeep = async (msg, args, g, player) => {
+  if (!player.pendingMarked || player.pendingMarked.length === 0) {
+    await msg.reply('No pending Marked Cards. Use `!markedcards <n>` first.');
+    return;
+  }
+  const peek = player.pendingMarked;
+  const n = peek.length;
+  let order = peek.map((_, i) => i); // default: [0,1,2] = same order (0 = top)
+  if (args.length >= n) {
+    const parsed = args.slice(0, n).map(a => parseInt(a) - 1);
+    const valid = parsed.every(i => i >= 0 && i < n) && new Set(parsed).size === n;
+    if (!valid) {
+      await msg.reply(`Provide ${n} unique numbers 1–${n}. Example: \`!markedkeep ${Array.from({ length: n }, (_, i) => i + 1).join(' ')}\``);
+      return;
+    }
+    order = parsed;
+  }
+  // Remove peeked cards from top of deck (they're still there since we only peeked)
+  g.deck.splice(g.deck.length - n, n);
+  // Push back — last pushed = top of deck (next flip). order[0] = desired top.
+  for (let i = order.length - 1; i >= 0; i--) g.deck.push(peek[order[i]]);
+  player.pendingMarked = null;
+  save();
+  await msg.reply(`**Marked Cards** — ${msg.author.username} puts the cards back. Top of deck: **${cardLabel(peek[order[0]])} · ${cardValue(peek[order[0]])}**.`);
+};
+
+// !markeddiscard — discard all peeked cards from the Fate Deck
+commands.markeddiscard = async (msg, args, g, player) => {
+  if (!player.pendingMarked || player.pendingMarked.length === 0) {
+    await msg.reply('No pending Marked Cards. Use `!markedcards <n>` first.');
+    return;
+  }
+  const n = player.pendingMarked.length;
+  const removed = g.deck.splice(g.deck.length - n, n);
+  g.discard.push(...removed);
+  player.pendingMarked = null;
+  save();
+  await msg.reply(`**Marked Cards** — ${msg.author.username} discards the top ${n} card(s) from the Fate Deck.`);
+};
+
+// !countingcards <n> — discard a Twist Card, flip from discard pile this turn. Use again to end.
+commands.countingcards = async (msg, args, g, player) => {
+  if (g.countingCards === msg.author.id) {
+    g.countingCards = null;
+    save();
+    await msg.reply(`**Counting Cards** — ${msg.author.username} ends their counting cards turn.`);
+    return;
+  }
+  if (!args[0]) { await msg.reply('Usage: `!countingcards <card number to discard>`. Use again to end it.'); return; }
+  if (player.hand.length === 0) { await msg.reply('Your hand is empty.'); return; }
+  const cardNum = parseInt(args[0]);
+  if (isNaN(cardNum) || cardNum < 1 || cardNum > player.hand.length) {
+    await msg.reply(`Invalid number. You have ${player.hand.length} card(s). Use \`!hand\` to check.`);
+    return;
+  }
+  const card = player.hand[cardNum - 1];
+  if (!card.twistCard) { await msg.reply('Counting Cards requires discarding a **Twist Card** (drawn from your Twist Deck).'); return; }
+  player.hand.splice(cardNum - 1, 1);
+  player.twistDiscard.push(card);
+  g.countingCards = msg.author.id;
+  save();
+  await msg.reply(`**Counting Cards** — ${msg.author.username} discards ${cardLabel(card)} and will flip from the discard pile this turn. Use \`!countingcards\` to end it.`);
+};
+
+// !mulligan — once per session: discard hand, reshuffle twist deck, draw 3
+commands.mulligan = async (msg, args, g, player) => {
+  if (player.usedMulligan) { await msg.reply('You have already used **Mulligan** this session.'); return; }
+  if (player.hand.length === 0) { await msg.reply('Your hand is empty — nothing to mulligan.'); return; }
+  const twistCardsInHand = player.hand.filter(c => c.twistCard).length;
+  for (const c of player.hand) player.twistDiscard.push(c);
+  player.hand = [];
+  player.twistDeck = shuffle([...player.twistDeck, ...player.twistDiscard]);
+  player.twistDiscard = [];
+  const drawn = [];
+  for (let i = 0; i < 3; i++) {
+    if (player.twistDeck.length === 0) break;
+    const c = player.twistDeck.pop();
+    player.hand.push(c);
+    drawn.push(c);
+  }
+  player.usedMulligan = true;
+  let fateReshuffled = false;
+  if (twistCardsInHand > 0) {
+    g.deck = shuffle([...g.deck, ...g.discard]);
+    g.discard = [];
+    fateReshuffled = true;
+  }
+  save();
+  let reply = `**Mulligan** — ${msg.author.username} discards their hand, reshuffles their Twist Deck, and draws ${drawn.length} card(s).`;
+  if (fateReshuffled) reply += '\n@here The Fate Deck has also been reshuffled — draw a card to replenish your hand!';
+  const handLines = player.hand.map((c, i) => `${i + 1}. ${cardLabel(c)} (${cardValue(c)})`).join('\n');
+  try {
+    await msg.author.send(`**Hand (${player.hand.length}):**\n${handLines}`);
+    await msg.reply(reply + ' Check your DMs for your new hand.');
+  } catch {
+    await msg.reply(`${reply}\n**New hand:**\n${handLines}`);
+  }
+};
+
+// !fiftyfifty — once per Dramatic Time: find both Jokers, FM gets one blind, you flip the other
+commands.fiftyfifty = async (msg, args, g, player) => {
+  if (player.usedFiftyFifty) { await msg.reply('You have already used **Fifty-Fifty Chance** this Dramatic Time. Resets on `!reshuffle`.'); return; }
+  // Find all jokers in deck and discard
+  const jokers = [];
+  const deckIdxs = [];
+  const discardIdxs = [];
+  for (let i = g.deck.length - 1; i >= 0; i--) {
+    if (g.deck[i].rank === 'RJ' || g.deck[i].rank === 'BJ') { jokers.push(g.deck[i]); deckIdxs.push(i); }
+  }
+  for (let i = g.discard.length - 1; i >= 0; i--) {
+    if (g.discard[i].rank === 'RJ' || g.discard[i].rank === 'BJ') { jokers.push(g.discard[i]); discardIdxs.push(i); }
+  }
+  if (jokers.length === 0) { await msg.reply('No Jokers found in the deck or discard pile.'); return; }
+  // Remove all found jokers
+  for (const i of deckIdxs.sort((a, b) => b - a)) g.deck.splice(i, 1);
+  for (const i of discardIdxs.sort((a, b) => b - a)) g.discard.splice(i, 1);
+  // Discard previous active flips
+  for (const c of g.lastFlips) g.discard.push(c);
+  g.lastFlips = [];
+  if (jokers.length === 1) {
+    g.lastFlips = [jokers[0]];
+    player.usedFiftyFifty = true;
+    save();
+    await msg.reply({ content: '**Fifty-Fifty Chance** — only one Joker found!', embeds: [flipEmbed([jokers[0]], msg.author.username)] });
+    return;
+  }
+  // Two jokers: randomly assign
+  const [fmJoker, playerJoker] = shuffle(jokers);
+  const insertAt = Math.floor(Math.random() * (g.deck.length + 1));
+  g.deck.splice(insertAt, 0, fmJoker);
+  g.lastFlips = [playerJoker];
+  player.usedFiftyFifty = true;
+  save();
+  await msg.reply({ content: `**Fifty-Fifty Chance** — both Jokers found. The FM's pick is shuffled back into the deck blind.`, embeds: [flipEmbed([playerJoker], msg.author.username)] });
 };
 
 // !test
@@ -419,6 +671,10 @@ commands.help = async (msg) => {
           {
             name: 'Players',
             value: '`!createTwistDeck D A C De` · `!twistShuffle` · `!draw [n]` · `!hand` · `!cheat <n>` · `!discard <n>` · `!pile`',
+          },
+          {
+            name: 'Abilities',
+            value: '`!luckofthedraw` · `!sleeve [n]` · `!usesleeve <n>` · `!markedcards <n>` · `!markedkeep [order]` · `!markeddiscard` · `!countingcards <n>` · `!mulligan` · `!fiftyfifty`',
           },
           {
             name: 'Suits',
