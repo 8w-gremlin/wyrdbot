@@ -22,7 +22,27 @@ function isFateMaster(member) {
 // ── Card Data ─────────────────────────────────────────────────
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 const SUITS = ['Tomes', 'Masks', 'Rams', 'Crows'];
-const SUIT_EMOJI = { Tomes: '📚', Masks: '🎭', Rams: '🐏', Crows: '🐦' };
+// Fallback standard emoji if custom ones aren't found
+const SUIT_EMOJI_FALLBACK = { Tomes: '♦', Masks: '♠', Rams: '♥', Crows: '♣' };
+
+// Custom emoji IDs — resolved to full strings at runtime if available in the guild
+const SUIT_EMOJI_CUSTOM = {
+  Tomes: { name: 'tome', id: '1134359150818758837' },
+  Masks: { name: 'mask', id: '1134359109987209296' },
+  Rams: { name: 'ram', id: '1134359131545948160' },
+  Crows: { name: 'crow', id: '1134370225664557096' },
+};
+
+// Resolved at runtime — starts with fallbacks, upgraded on bot ready
+const SUIT_EMOJI = { ...SUIT_EMOJI_FALLBACK };
+
+function resolveSuitEmoji(client) {
+  for (const [suit, custom] of Object.entries(SUIT_EMOJI_CUSTOM)) {
+    const found = client.emojis.cache.get(custom.id);
+    SUIT_EMOJI[suit] = found ? found.toString() : SUIT_EMOJI_FALLBACK[suit];
+  }
+  console.log('Suit emoji resolved:', SUIT_EMOJI);
+}
 const SUIT_COLOR = { Tomes: 0xb8860b, Masks: 0x8b1a1a, Rams: 0x2e8b8b, Crows: 0x3a3a5c };
 const RANK_VALUE = { A: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, J: 11, Q: 12, K: 13, RJ: 14, BJ: 0 };
 const SUIT_ALIASES = {
@@ -387,7 +407,10 @@ const client = new Client({
   ],
 });
 
-client.once('ready', () => console.log(`WyrdBot online as ${client.user.tag}`));
+client.once('ready', () => {
+  console.log(`WyrdBot online as ${client.user.tag}`);
+  resolveSuitEmoji(client);
+});
 
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
