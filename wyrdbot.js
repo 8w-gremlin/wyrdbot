@@ -11,7 +11,7 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const PREFIX = '!';
 const STATE_FILE = path.join(__dirname, 'state.json');
 const FM_ROLE = 'Fate Master';
-const FM_ONLY = new Set(['shuffle', 'reshuffle', 'deckinfo', 'twistShuffle', 'clearhand', 'createTwistDeck']);
+const FM_ONLY = new Set(['shuffle', 'reshuffle', 'clearhand']);
 
 function isFateMaster(member) {
   if (!member) return false;
@@ -358,12 +358,12 @@ commands.help = async (msg) => {
             value: '`!flip [n]` · `!shuffle` · `!reshuffle` · `!deckinfo`',
           },
           {
-            name: 'Twist Deck 🔒',
-            value: '`!createTwistDeck D A C De` · `!clearhand` · `!twistShuffle`',
+            name: 'Fate Deck 🔒',
+            value: '`!clearhand`',
           },
           {
             name: 'Players',
-            value: '`!draw [n]` · `!hand` · `!cheat <n>` · `!discard`',
+            value: '`!createTwistDeck D A C De` · `!twistShuffle` · `!draw [n]` · `!hand` · `!cheat <n>` · `!discard`',
           },
           {
             name: 'Suits',
