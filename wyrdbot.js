@@ -36,9 +36,11 @@ const SUIT_EMOJI_CUSTOM = {
 // Resolved at runtime — starts with fallbacks, upgraded on bot ready
 const SUIT_EMOJI = { ...SUIT_EMOJI_FALLBACK };
 
-function resolveSuitEmoji(client) {
+async function resolveSuitEmoji(client) {
+  try { await client.application.emojis.fetch(); } catch { }
   for (const [suit, custom] of Object.entries(SUIT_EMOJI_CUSTOM)) {
-    const found = client.emojis.cache.get(custom.id);
+    const found = client.emojis.cache.get(custom.id)
+               || client.application.emojis.cache.get(custom.id);
     SUIT_EMOJI[suit] = found ? found.toString() : SUIT_EMOJI_FALLBACK[suit];
   }
   console.log('Suit emoji resolved:', SUIT_EMOJI);
@@ -407,9 +409,9 @@ const client = new Client({
   ],
 });
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`WyrdBot online as ${client.user.tag}`);
-  resolveSuitEmoji(client);
+  await resolveSuitEmoji(client);
 });
 
 client.on('interactionCreate', async (interaction) => {
