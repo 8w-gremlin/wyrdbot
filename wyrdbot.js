@@ -27,10 +27,10 @@ const SUIT_EMOJI_FALLBACK = { Tomes: '♦', Masks: '♠', Rams: '♥', Crows: '�
 
 // Custom emoji IDs — resolved to full strings at runtime if available in the guild
 const SUIT_EMOJI_CUSTOM = {
-  Tomes: { name: 'tome', id: '1134359150818758837' },
-  Masks: { name: 'mask', id: '1134359109987209296' },
-  Rams: { name: 'ram', id: '1134359131545948160' },
-  Crows: { name: 'crow', id: '1134370225664557096' },
+  Tomes: { name: 'tome', id: '1482914230838497292' },
+  Masks: { name: 'mask', id: '1482915010522120416' },
+  Rams: { name: 'ram', id: '1482915012732387378' },
+  Crows: { name: 'crow', id: '1482914225625235626' },
 };
 
 // Resolved at runtime — starts with fallbacks, upgraded on bot ready
