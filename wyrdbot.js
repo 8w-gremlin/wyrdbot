@@ -21,7 +21,7 @@ function isFateMaster(member) {
 
 // ── Card Data ─────────────────────────────────────────────────
 const {
-  RANKS, SUITS, SUIT_EMOJI_FALLBACK, SUIT_COLOR, RANK_VALUE, SUIT_ALIASES,
+  SUIT_EMOJI_FALLBACK, SUIT_COLOR, SUIT_ALIASES,
   buildDeck, shuffle, cardValue,
 } = require('./lib/cards');
 
@@ -37,7 +37,7 @@ const SUIT_EMOJI_CUSTOM = {
 const SUIT_EMOJI = { ...SUIT_EMOJI_FALLBACK };
 
 async function resolveSuitEmoji(client) {
-  try { await client.application.emojis.fetch(); } catch { }
+  try { await client.application.emojis.fetch(); } catch { /* ignore */ }
   for (const [suit, custom] of Object.entries(SUIT_EMOJI_CUSTOM)) {
     const found = client.emojis.cache.get(custom.id)
                || client.application.emojis.cache.get(custom.id);
@@ -53,10 +53,10 @@ function cardLabel(card) {
 
 // ── State ─────────────────────────────────────────────────────
 function loadState() {
-  try { if (fs.existsSync(STATE_FILE)) return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { }
+  try { if (fs.existsSync(STATE_FILE)) return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { /* ignore */ }
   return {};
 }
-function saveState(s) { try { fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2)); } catch { } }
+function saveState(s) { try { fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2)); } catch { /* ignore */ } }
 
 const globalState = loadState();
 
@@ -262,7 +262,7 @@ commands.createTwistDeck = async (msg, args, g, player) => {
 };
 
 // !shuffle
-commands.shuffle = async (msg, args, g, player) => {
+commands.shuffle = async (msg, args, g, _player) => {
   const count = g.discard.length;
   g.deck = shuffle([...g.deck, ...g.discard]);
   g.discard = [];
@@ -271,7 +271,7 @@ commands.shuffle = async (msg, args, g, player) => {
 };
 
 // !reshuffle
-commands.reshuffle = async (msg, args, g, player) => {
+commands.reshuffle = async (msg, args, g, _player) => {
   g.deck = shuffle(buildDeck());
   g.discard = [];
   g.lastFlips = [];
@@ -289,7 +289,7 @@ commands.twistShuffle = async (msg, args, g, player) => {
 };
 
 // !deckinfo
-commands.deckinfo = async (msg, args, g, player) => {
+commands.deckinfo = async (msg, args, g, _player) => {
   const last = g.lastFlips.length ? cardLabel(g.lastFlips[0]) : 'none';
   await msg.reply(`Deck: ${g.deck.length} · Discard: ${g.discard.length} · Last flip: ${last}`);
 };
@@ -356,16 +356,16 @@ commands.test = async (msg, args, g, player) => {
 };
 
 // !start
-commands.start = async (msg, args, g, player) => {
+commands.start = async (msg, _args, _g, _player) => {
   const suits = `${SUIT_EMOJI.Tomes} Tomes · ${SUIT_EMOJI.Masks} Masks · ${SUIT_EMOJI.Rams} Rams · ${SUIT_EMOJI.Crows} Crows`;
   const embed = new EmbedBuilder()
     .setColor(0xb8860b)
     .setTitle('Welcome to Through the Breach!')
-    .setDescription('Here\'s how to get set up and ready to play.')
+    .setDescription("Here's how to get set up and ready to play.")
     .addFields(
       {
         name: 'Step 1 — Create your Twist Deck',
-        value: `Your Twist Deck is your personal hand of cards. You need to assign one of the four suits to each of your character\'s four aspects.\n\n**Suits:** ${suits}\n\n\`\`\`!createTwistDeck <Defining> <Ascendant> <Center> <Descendant>\`\`\`**Example:** \`!createTwistDeck Rams Crows Masks Tomes\`\n\nCheck your character sheet for which suits correspond to which aspect.`,
+        value: `Your Twist Deck is your personal hand of cards. You need to assign one of the four suits to each of your character's four aspects.\n\n**Suits:** ${suits}\n\n\`\`\`!createTwistDeck <Defining> <Ascendant> <Center> <Descendant>\`\`\`**Example:** \`!createTwistDeck Rams Crows Masks Tomes\`\n\nCheck your character sheet for which suits correspond to which aspect.`,
       },
       {
         name: 'Step 2 — Draw your starting hand',
