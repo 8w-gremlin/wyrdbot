@@ -385,6 +385,50 @@ commands.test = async (msg, args, g, player) => {
   });
 };
 
+// !start
+commands.start = async (msg, args, g, player) => {
+  const suits = `${SUIT_EMOJI.Tomes} Tomes · ${SUIT_EMOJI.Masks} Masks · ${SUIT_EMOJI.Rams} Rams · ${SUIT_EMOJI.Crows} Crows`;
+  const embed = new EmbedBuilder()
+    .setColor(0xb8860b)
+    .setTitle('Welcome to Through the Breach!')
+    .setDescription('Here\'s how to get set up and ready to play.')
+    .addFields(
+      {
+        name: 'Step 1 — Create your Twist Deck',
+        value: `Your Twist Deck is your personal hand of cards. You need to assign one of the four suits to each of your character\'s four aspects.\n\n**Suits:** ${suits}\n\n\`\`\`!createTwistDeck <Defining> <Ascendant> <Center> <Descendant>\`\`\`**Example:** \`!createTwistDeck Rams Crows Masks Tomes\`\n\nCheck your character sheet for which suits correspond to which aspect.`,
+      },
+      {
+        name: 'Step 2 — Draw your starting hand',
+        value: 'Once your Twist Deck is created, draw cards to fill your hand. Your Fate Master will tell you how many to start with.\n\n```!draw 4```',
+      },
+      {
+        name: 'During Play',
+        value: [
+          '`!flip` — flip a card from the Fate Deck when making a duel or challenge',
+          '`!cheat <n>` — replace the active flip with a card from your hand',
+          '`!draw [n]` — draw more cards to your hand',
+          '`!hand` — check what cards you\'re holding',
+          '`!discard <n>` — discard a card from your hand',
+          '`!pile` — see your twist discard pile',
+          '`!deckinfo` — check how many cards are left in the Fate Deck',
+          '`!help` — show all commands',
+        ].join('\n'),
+      },
+      {
+        name: 'Tips',
+        value: '• Your hand is private — cards are always sent to you via DM\n• The Black Joker cannot be cheated\n• You can only cheat a flip if you have cards in your hand',
+      },
+    )
+    .setFooter({ text: 'Good luck, Fated.' });
+
+  try {
+    await msg.author.send({ embeds: [embed] });
+    await msg.reply('Check your DMs for a getting started guide!');
+  } catch {
+    await msg.reply({ content: 'I couldn\'t DM you — check your privacy settings.', embeds: [embed] });
+  }
+};
+
 // !help
 commands.help = async (msg) => {
   const fm = msg.member && isFateMaster(msg.member);
