@@ -74,13 +74,15 @@ function getGuild(guildId) {
 function getPlayer(guildId, userId, username) {
   const g = getGuild(guildId);
   if (!g.players[userId]) {
-    g.players[userId] = { name: username, hand: [], twistDeck: [], twistDiscard: [], twistSuits: null, usedMulligan: false, usedFiftyFifty: false, pendingMarked: null, handLimit: HAND_LIMIT };
+    g.players[userId] = { name: username, hand: [], twistDeck: [], twistDiscard: [], twistSuits: null, usedMulligan: false, usedFiftyFifty: false, pendingMarked: null, pendingGlimpse: null, configuration: [], handLimit: HAND_LIMIT };
     saveState(globalState);
   } else {
     g.players[userId].name = username;
     if (g.players[userId].usedMulligan === undefined) g.players[userId].usedMulligan = false;
     if (g.players[userId].usedFiftyFifty === undefined) g.players[userId].usedFiftyFifty = false;
     if (g.players[userId].pendingMarked === undefined) g.players[userId].pendingMarked = null;
+    if (g.players[userId].pendingGlimpse === undefined) g.players[userId].pendingGlimpse = null;
+    if (g.players[userId].configuration === undefined) g.players[userId].configuration = [];
     if (g.players[userId].handLimit === undefined) g.players[userId].handLimit = HAND_LIMIT;
   }
   return g.players[userId];
@@ -429,31 +431,150 @@ commands.clearhand = async (msg, args, g, player) => {
 
 // ── Abilities ─────────────────────────────────────────────────
 
-// !luckofthedraw — draw 2 cards instead of 1 when the Fate Deck is reshuffled
-commands.luckofthedraw = async (msg, args, g, player) => {
+// !glimpse — draw top Twist Deck card privately; then !glimpse keep or !glimpse remove
+commands.glimpse = async (msg, args, g, player) => {
+  if (args[0] === 'keep') {
+    if (!player.pendingGlimpse) { await msg.reply('No pending glimpse. Use `!glimpse` first.'); return; }
+    const card = player.pendingGlimpse;
+    const insertAt = Math.floor(Math.random() * (player.twistDeck.length + 1));
+    player.twistDeck.splice(insertAt, 0, card);
+    player.pendingGlimpse = null;
+    save();
+    await msg.reply(`**Sight in Two Worlds** — ${msg.author.username} shuffles the card back into their Twist Deck.`);
+    return;
+  }
+  if (args[0] === 'remove') {
+    if (!player.pendingGlimpse) { await msg.reply('No pending glimpse. Use `!glimpse` first.'); return; }
+    player.pendingGlimpse = null;
+    save();
+    await msg.reply(`**Sight in Two Worlds** — ${msg.author.username} removes the card from play for the session.`);
+    return;
+  }
   if (!player.twistSuits) { await msg.reply('No Twist Deck. Use `!createTwistDeck` first.'); return; }
-  const drawn = [];
-  for (let i = 0; i < 2; i++) {
-    if (player.twistDeck.length === 0) {
-      if (player.twistDiscard.length === 0) break;
-      player.twistDeck = shuffle([...player.twistDiscard]);
-      player.twistDiscard = [];
-      await msg.channel.send(`${msg.author.username}'s Twist Deck reshuffled.`);
-    }
-    const c = player.twistDeck.pop();
-    player.hand.push(c);
-    drawn.push(c);
+  if (player.twistDeck.length === 0) {
+    if (player.twistDiscard.length === 0) { await msg.reply('Twist Deck and discard are empty.'); return; }
+    player.twistDeck = shuffle([...player.twistDiscard]);
+    player.twistDiscard = [];
+    await msg.channel.send(`${msg.author.username}'s Twist Deck reshuffled.`);
+  }
+  const card = player.twistDeck.pop();
+  player.pendingGlimpse = card;
+  save();
+  await msg.channel.send(`**Sight in Two Worlds** — ${msg.author.username} glimpses the top card of their Twist Deck. Result sent privately.`);
+  try {
+    await msg.author.send(`**Sight in Two Worlds** — you drew: **${cardLabel(card)} · ${cardValue(card)}**\n\nUse \`!glimpse keep\` to shuffle it back in, or \`!glimpse remove\` to remove it from play for the session.`);
+  } catch {
+    await msg.reply(`**${cardLabel(card)} · ${cardValue(card)}**\n\nUse \`!glimpse keep\` to shuffle back or \`!glimpse remove\` to remove.`);
+  }
+};
+
+// !configure [n...] — place cards as Configuration; no args = show current
+commands.configure = async (msg, args, g, player) => {
+  if (!args.length) {
+    if (!player.configuration.length) { await msg.reply('No Configuration Cards. Use `!configure <card numbers>` to place some.'); return; }
+    const lines = player.configuration.map((c, i) => `${i + 1}. ${cardLabel(c)} · ${cardValue(c)}`).join('\n');
+    await msg.reply(`**${msg.author.username}'s Configuration (${player.configuration.length}):**\n${lines}`);
+    return;
+  }
+  if (player.hand.length === 0) { await msg.reply('Your hand is empty.'); return; }
+  const nums = [...new Set(args.map(a => parseInt(a)).filter(n => !isNaN(n)))].sort((a, b) => b - a);
+  if (!nums.length) { await msg.reply('Usage: `!configure <card numbers>` — use `!hand` to see your cards.'); return; }
+  for (const n of nums) {
+    if (n < 1 || n > player.hand.length) { await msg.reply(`Invalid card number ${n}. You have ${player.hand.length} card(s).`); return; }
+  }
+  const placed = [];
+  for (const n of nums) {
+    const [card] = player.hand.splice(n - 1, 1);
+    player.configuration.push(card);
+    placed.push(card);
   }
   save();
-  if (!drawn.length) { await msg.reply('Twist Deck and discard are empty.'); return; }
-  await warnHandLimit(msg.channel, player);
-  const handLines = player.hand.map((c, i) => `${i + 1}. ${cardLabel(c)} (${cardValue(c)})`).join('\n');
-  try {
-    await msg.author.send(`**Hand (${player.hand.length}/${player.handLimit}):**\n${handLines}`);
-    await msg.reply(`**Luck of the Draw** — ${msg.author.username} draws ${drawn.length} cards. Check your DMs.`);
-  } catch {
-    await msg.reply(`**Luck of the Draw** — drew ${drawn.length}.\n**Your hand:**\n${handLines}`);
+  const placedLine = placed.map(c => `${cardLabel(c)} · ${cardValue(c)}`).join(', ');
+  const configLines = player.configuration.map((c, i) => `${i + 1}. ${cardLabel(c)} · ${cardValue(c)}`).join('\n');
+  await msg.channel.send(`**The Configuration** — ${msg.author.username} places ${placed.length} card(s): ${placedLine}\n**Configuration (${player.configuration.length}):**\n${configLines}`);
+};
+
+// !attune <n...> — add more hand cards to Configuration
+commands.attune = async (msg, args, g, player) => {
+  if (!args.length) { await msg.reply('Usage: `!attune <card numbers>` — use `!hand` to see your cards.'); return; }
+  if (player.hand.length === 0) { await msg.reply('Your hand is empty.'); return; }
+  const nums = [...new Set(args.map(a => parseInt(a)).filter(n => !isNaN(n)))].sort((a, b) => b - a);
+  if (!nums.length) { await msg.reply('Usage: `!attune <card numbers>`'); return; }
+  for (const n of nums) {
+    if (n < 1 || n > player.hand.length) { await msg.reply(`Invalid card number ${n}. You have ${player.hand.length} card(s).`); return; }
   }
+  const placed = [];
+  for (const n of nums) {
+    const [card] = player.hand.splice(n - 1, 1);
+    player.configuration.push(card);
+    placed.push(card);
+  }
+  save();
+  const placedLine = placed.map(c => `${cardLabel(c)} · ${cardValue(c)}`).join(', ');
+  const configLines = player.configuration.map((c, i) => `${i + 1}. ${cardLabel(c)} · ${cardValue(c)}`).join('\n');
+  await msg.channel.send(`**The Configuration** — ${msg.author.username} attunes ${placed.length} more card(s): ${placedLine}\n**Configuration (${player.configuration.length}):**\n${configLines}`);
+};
+
+// !tap <+1/-1> — move one Configuration Card to bottom of Twist Deck, modify duel total
+commands.tap = async (msg, args, g, player) => {
+  if (player.configuration.length === 0) { await msg.reply('No Configuration Cards. Use `!configure` first.'); return; }
+  if (args[0] !== '+1' && args[0] !== '-1') { await msg.reply('Usage: `!tap +1` or `!tap -1`'); return; }
+  const card = player.configuration.shift();
+  player.twistDeck.unshift(card);
+  save();
+  await msg.channel.send(`**The Configuration** — ${msg.author.username} taps ${cardLabel(card)} · ${cardValue(card)} — duel total modified by **${args[0]}**.`);
+};
+
+// !aethersight — move one Configuration Card to bottom of Twist Deck, reveal top of each player's Twist Deck to them privately
+commands.aethersight = async (msg, args, g, player) => {
+  if (player.configuration.length === 0) { await msg.reply('No Configuration Cards. Use `!configure` first.'); return; }
+  const card = player.configuration.shift();
+  player.twistDeck.unshift(card);
+  save();
+  await msg.channel.send(`**Sight Beyond** — ${msg.author.username} uses Aethersight. The top card of each player's Twist Deck is revealed to them privately.`);
+  for (const [uid, p] of Object.entries(g.players)) {
+    if (p.twistDeck.length === 0) continue;
+    const top = p.twistDeck[p.twistDeck.length - 1];
+    try {
+      const discordUser = await msg.client.users.fetch(uid);
+      await discordUser.send(`**Sight Beyond** — the top card of your Twist Deck is: **${cardLabel(top)} · ${cardValue(top)}**`);
+    } catch { /* ignore */ }
+  }
+};
+
+// !alter <n> <+2/-2> — move up to 3 Configuration Cards to bottom of Twist Deck, modify duel total
+commands.alter = async (msg, args, g, player) => {
+  const count = parseInt(args[0]);
+  const modifier = args[1];
+  if (isNaN(count) || count < 1 || count > 3) { await msg.reply('Usage: `!alter <1–3> <+2/-2>`'); return; }
+  if (modifier !== '+2' && modifier !== '-2') { await msg.reply('Usage: `!alter <1–3> <+2/-2>`'); return; }
+  if (player.configuration.length < count) { await msg.reply(`Not enough Configuration Cards — you have ${player.configuration.length}.`); return; }
+  const used = player.configuration.splice(0, count);
+  for (const c of used) player.twistDeck.unshift(c);
+  save();
+  const total = count * (modifier === '+2' ? 2 : -2);
+  const totalStr = total >= 0 ? `+${total}` : `${total}`;
+  const usedLine = used.map(c => `${cardLabel(c)} · ${cardValue(c)}`).join(', ');
+  await msg.channel.send(`**Alteration** — ${msg.author.username} uses ${count} Configuration Card(s) (${usedLine}) — duel total modified by **${totalStr}**.`);
+};
+
+// !fateweave <value> <suit> — move 2 Configuration Cards to bottom of Twist Deck, set active flip
+commands.fateweave = async (msg, args, g, player) => {
+  if (player.configuration.length < 2) { await msg.reply(`Not enough Configuration Cards — you have ${player.configuration.length} (need 2).`); return; }
+  if (!g.lastFlips || g.lastFlips.length === 0) { await msg.reply('No active flip.'); return; }
+  const value = parseInt(args[0]);
+  if (isNaN(value) || value < 1 || value > 13) { await msg.reply('Usage: `!fateweave <1–13> <suit>` e.g. `!fateweave 11 Rams`'); return; }
+  const suit = SUIT_ALIASES[args[1]?.toLowerCase()];
+  if (!suit) { await msg.reply('Unknown suit. Use Tomes, Masks, Rams, or Crows.'); return; }
+  const RANK_FOR_VALUE = { 1: 'A', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10', 11: 'J', 12: 'Q', 13: 'K' };
+  const newCard = { rank: RANK_FOR_VALUE[value], suit };
+  const used = player.configuration.splice(0, 2);
+  for (const c of used) player.twistDeck.unshift(c);
+  g.discard.push(g.lastFlips[0]);
+  g.lastFlips[0] = newCard;
+  save();
+  const usedLine = used.map(c => `${cardLabel(c)} · ${cardValue(c)}`).join(', ');
+  await msg.channel.send({ content: `**From Across the Aether** — ${msg.author.username} uses ${usedLine} to weave fate.`, embeds: [flipEmbed(g.lastFlips, msg.author.username, true)] });
 };
 
 // !sidebar [n] — set card n aside face up; no arg shows the current sidebar card
@@ -671,6 +792,8 @@ commands.newsession = async (msg, args, g, _player) => {
     p.usedMulligan = false;
     p.usedFiftyFifty = false;
     p.pendingMarked = null;
+    p.pendingGlimpse = null;
+    p.configuration = [];
     // Rebuild twist deck from suits if the player has them, otherwise clear
     if (p.twistSuits) {
       const s = p.twistSuits;
@@ -821,9 +944,20 @@ commands.help = async (msg) => {
             ].join('\n'),
           },
           {
-            name: 'Abilities',
+            name: 'Abilities — Sight in Two Worlds / The Configuration',
             value: [
-              '`!luckofthedraw` — draw 2 cards',
+              '`!glimpse` — draw top Twist Deck card privately; then `!glimpse keep` or `!glimpse remove`',
+              '`!configure [n...]` — place cards as Configuration Cards (no arg = view current)',
+              '`!attune <n...>` — add more hand cards to your Configuration',
+              '`!tap <+1/-1>` — use one Configuration Card to modify a duel total',
+              '`!aethersight` — use one Configuration Card; reveals top of each player\'s Twist Deck to them',
+              '`!alter <1–3> <+2/-2>` — use up to 3 Configuration Cards to modify a duel total',
+              '`!fateweave <1–13> <suit>` — use 2 Configuration Cards to set the active flip',
+            ].join('\n'),
+          },
+          {
+            name: 'Abilities — Other',
+            value: [
               '`!sidebar [n]` — set card n aside face-up (no arg = show current)',
               '`!usesidebar` — cheat fate with the sidebar card',
               '`!peek <n>` — discard card n, peek at top 3 of Fate Deck',
