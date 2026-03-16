@@ -346,6 +346,30 @@ commands.clearhand = async (msg, args, g, player) => {
   await msg.reply(`Discarded ${count} card(s) from ${msg.author.username}'s hand.`);
 };
 
+// !test
+commands.test = async (msg, args, g, player) => {
+  const suitLine = Object.entries(SUIT_EMOJI)
+    .map(([suit, emoji]) => `${emoji} ${suit}`)
+    .join('  ');
+  const twistStatus = player.twistSuits
+    ? `${player.twistDeck.length} in deck · ${player.hand.length} in hand · ${player.twistDiscard.length} in discard`
+    : 'No Twist Deck';
+  await msg.reply({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x2ecc71)
+        .setTitle('WyrdBot — Diagnostics')
+        .addFields(
+          { name: 'Suit Icons', value: suitLine },
+          { name: 'Fate Deck', value: `${g.deck.length} in deck · ${g.discard.length} in discard`, inline: true },
+          { name: 'Your Twist Deck', value: twistStatus, inline: true },
+          { name: 'FM Role', value: isFateMaster(msg.member) ? 'Yes' : 'No', inline: true },
+        )
+        .setFooter({ text: `Bot online · ${client.ws.ping}ms` }),
+    ],
+  });
+};
+
 // !help
 commands.help = async (msg) => {
   const fm = msg.member && isFateMaster(msg.member);
