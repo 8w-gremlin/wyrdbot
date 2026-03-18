@@ -11,7 +11,7 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const PREFIX = '!';
 const STATE_FILE = path.join(__dirname, 'state.json');
 const FM_ROLE = 'Fate Master';
-const FM_ONLY = new Set(['shuffle', 'reshuffle', 'clearhand', 'newsession']);
+const FM_ONLY = new Set(['shuffle', 'reshuffle', 'clearhand', 'newsession', 'weirdlookin']);
 
 function isFateMaster(member) {
   if (!member) return false;
@@ -21,9 +21,19 @@ function isFateMaster(member) {
 
 // ── Card Data ─────────────────────────────────────────────────
 const {
-  SUIT_EMOJI_FALLBACK, SUIT_COLOR, SUIT_ALIASES,
+  RANKS, SUIT_EMOJI_FALLBACK, SUIT_COLOR, SUIT_ALIASES,
   buildDeck, shuffle, cardValue,
 } = require('./lib/cards');
+
+function nextRank(rank) {
+  const i = RANKS.indexOf(rank);
+  return (i === -1 || i >= RANKS.length - 1) ? rank : RANKS[i + 1];
+}
+function boostRankBy(rank, n) {
+  let r = rank;
+  for (let i = 0; i < n; i++) r = nextRank(r);
+  return r;
+}
 
 // Custom emoji IDs — resolved to full strings at runtime if available in the guild
 const SUIT_EMOJI_CUSTOM = {
@@ -74,7 +84,7 @@ function getGuild(guildId) {
 function getPlayer(guildId, userId, username) {
   const g = getGuild(guildId);
   if (!g.players[userId]) {
-    g.players[userId] = { name: username, hand: [], twistDeck: [], twistDiscard: [], twistSuits: null, usedMulligan: false, usedFiftyFifty: false, pendingMarked: null, pendingGlimpse: null, configuration: [], handLimit: HAND_LIMIT };
+    g.players[userId] = { name: username, hand: [], twistDeck: [], twistDiscard: [], twistSuits: null, usedMulligan: false, usedFiftyFifty: false, pendingMarked: null, pendingGlimpse: null, configuration: [], handLimit: HAND_LIMIT, weirdLookin: false, twistBoosts: {}, empoweredByFateCount: 0 };
     saveState(globalState);
   } else {
     g.players[userId].name = username;
@@ -84,6 +94,9 @@ function getPlayer(guildId, userId, username) {
     if (g.players[userId].pendingGlimpse === undefined) g.players[userId].pendingGlimpse = null;
     if (g.players[userId].configuration === undefined) g.players[userId].configuration = [];
     if (g.players[userId].handLimit === undefined) g.players[userId].handLimit = HAND_LIMIT;
+    if (g.players[userId].weirdLookin === undefined) g.players[userId].weirdLookin = false;
+    if (g.players[userId].twistBoosts === undefined) g.players[userId].twistBoosts = {};
+    if (g.players[userId].empoweredByFateCount === undefined) g.players[userId].empoweredByFateCount = 0;
   }
   return g.players[userId];
 }
@@ -797,12 +810,28 @@ commands.newsession = async (msg, args, g, _player) => {
     // Rebuild twist deck from suits if the player has them, otherwise clear
     if (p.twistSuits) {
       const s = p.twistSuits;
-      p.twistDeck = shuffle([
+      const baseCards = [
         ...['A', '5', '9', 'K'].map(rank => ({ rank, suit: s.Defining, twistCard: true })),
         ...['4', '8', 'Q'].map(rank => ({ rank, suit: s.Ascendant, twistCard: true })),
         ...['3', '7', 'J'].map(rank => ({ rank, suit: s.Center, twistCard: true })),
-        ...['2', '6', '10'].map(rank => ({ rank, suit: s.Descendant, twistCard: true })),
-      ]);
+        ...(p.weirdLookin
+          ? [
+              { rank: '10', suit: s.Defining, twistCard: true },
+              { rank: '7', suit: s.Ascendant, twistCard: true },
+              { rank: '4', suit: s.Center, twistCard: true },
+            ]
+          : ['2', '6', '10'].map(rank => ({ rank, suit: s.Descendant, twistCard: true }))),
+      ];
+      // Apply persistent Twisted Fates boosts
+      const boosts = p.twistBoosts || {};
+      for (const card of baseCards) {
+        const key = `${card.rank}|${card.suit}`;
+        if (boosts[key]) card.rank = boostRankBy(card.rank, boosts[key]);
+      }
+      // Re-add any Red Jokers from Empowered by Fate
+      const rjCount = p.empoweredByFateCount || 0;
+      for (let i = 0; i < rjCount; i++) baseCards.push({ rank: 'RJ', suit: null, twistCard: true });
+      p.twistDeck = shuffle(baseCards);
     } else {
       p.twistDeck = [];
     }
@@ -834,6 +863,82 @@ commands.handsize = async (msg, args, g, player) => {
   if (target.hand.length > n) {
     await msg.channel.send(`⚠️ **${targetName}** has ${target.hand.length} cards — use \`!discard\` to discard down to ${n}.`);
   }
+};
+
+// !weirdlookin @player — FM only: grant Weird Lookin' (replaces Descendant cards with bonus cards)
+commands.weirdlookin = async (msg, _args, _g, _player) => {
+  const mention = msg.mentions.users.first();
+  if (!mention) { await msg.reply('Usage: `!weirdlookin @player`'); return; }
+  const target = getPlayer(msg.guild.id, mention.id, mention.username);
+  if (!target.twistSuits) { await msg.reply(`${mention.username} has no Twist Deck yet.`); return; }
+  if (target.weirdLookin) { await msg.reply(`${mention.username} already has **Weird Lookin'**.`); return; }
+  const s = target.twistSuits;
+  // Remove all Descendant-suited cards from deck, hand, and discard
+  const isDescendant = c => c.suit === s.Descendant;
+  target.twistDeck = target.twistDeck.filter(c => !isDescendant(c));
+  target.hand = target.hand.filter(c => !isDescendant(c));
+  target.twistDiscard = target.twistDiscard.filter(c => !isDescendant(c));
+  // Add replacement cards shuffled into deck
+  const newCards = [
+    { rank: '10', suit: s.Defining, twistCard: true },
+    { rank: '7', suit: s.Ascendant, twistCard: true },
+    { rank: '4', suit: s.Center, twistCard: true },
+  ];
+  target.twistDeck = shuffle([...target.twistDeck, ...newCards]);
+  target.weirdLookin = true;
+  save();
+  await msg.channel.send(
+    `**Weird Lookin'** — ${mention.username} gains this ability. ` +
+    `Descendant (${SUIT_EMOJI[s.Descendant]} ${s.Descendant}) cards removed; ` +
+    `added 10 of ${SUIT_EMOJI[s.Defining]} ${s.Defining}, 7 of ${SUIT_EMOJI[s.Ascendant]} ${s.Ascendant}, 4 of ${SUIT_EMOJI[s.Center]} ${s.Center}.`
+  );
+};
+
+// !twistedfates [n] — permanently increase one of your Twist Deck cards' value by 1
+commands.twistedfates = async (msg, args, _g, player) => {
+  if (!player.twistSuits) { await msg.reply('No Twist Deck yet. Use `!createTwistDeck` first.'); return; }
+  // Build combined pool (deck + hand + discard) sorted by value
+  const pool = [
+    ...player.twistDeck.map(c => ({ card: c, location: 'deck' })),
+    ...player.hand.map(c => ({ card: c, location: 'hand' })),
+    ...player.twistDiscard.map(c => ({ card: c, location: 'discard' })),
+  ].sort((a, b) => cardValue(a.card) - cardValue(b.card));
+  const numArg = args.find(a => /^\d+$/.test(a));
+  if (!numArg) {
+    if (pool.length === 0) { await msg.reply('Your Twist pool is empty.'); return; }
+    const lines = pool.map((e, i) => `${i + 1}. ${cardLabel(e.card)} · ${cardValue(e.card)} (${e.location})`).join('\n');
+    await msg.reply(`**Your Twist Pool:**\n${lines}\n\nUse \`!twistedfates <n>\` to permanently boost a card.`);
+    return;
+  }
+  const n = parseInt(numArg);
+  if (n < 1 || n > pool.length) { await msg.reply(`Invalid number. You have ${pool.length} Twist card(s).`); return; }
+  const { card } = pool[n - 1];
+  const oldRank = card.rank;
+  if (oldRank === 'K' || oldRank === 'RJ' || oldRank === 'BJ') {
+    await msg.reply(`${cardLabel(card)} is already at max value and cannot be boosted.`); return;
+  }
+  const newRank = nextRank(oldRank);
+  // Store the boost keyed by original rank (before any previous boost)
+  const origRank = card.origRank ?? card.rank;
+  const key = `${origRank}|${card.suit}`;
+  player.twistBoosts[key] = (player.twistBoosts[key] || 0) + 1;
+  card.origRank = origRank;
+  card.rank = newRank;
+  save();
+  await msg.channel.send(
+    `**Twisted Fates** — ${msg.author.username}'s ${cardLabel({ rank: oldRank, suit: card.suit })} permanently increased to **${cardLabel(card)} · ${cardValue(card)}**.`
+  );
+};
+
+// !empoweredbyfate — add a Red Joker to your Twist Deck
+commands.empoweredbyfate = async (msg, _args, _g, player) => {
+  if (!player.twistSuits) { await msg.reply('No Twist Deck yet. Use `!createTwistDeck` first.'); return; }
+  const rj = { rank: 'RJ', suit: null, twistCard: true };
+  const insertAt = Math.floor(Math.random() * (player.twistDeck.length + 1));
+  player.twistDeck.splice(insertAt, 0, rj);
+  player.empoweredByFateCount = (player.empoweredByFateCount || 0) + 1;
+  save();
+  await msg.channel.send(`**Empowered by Fate** — a Red Joker has been added to ${msg.author.username}'s Twist Deck (${player.twistDeck.length} cards in deck).`);
 };
 
 // !test
@@ -927,6 +1032,19 @@ commands.help = async (msg) => {
               '`!reshuffle` — full deck reset',
               '`!newsession` — new session reset (keeps twist suits)',
               '`!clearhand` — discard a player\'s hand',
+            ].join('\n'),
+          },
+          {
+            name: 'Abilities — FM Grants 🔒',
+            value: [
+              '`!weirdlookin @player` — grant Weird Lookin\': replace Descendant cards with 10/Defining, 7/Ascendant, 4/Center',
+            ].join('\n'),
+          },
+          {
+            name: 'Abilities — Twist Deck Upgrades',
+            value: [
+              '`!twistedfates [n]` — permanently boost one of your Twist Deck cards by 1 (no n = list cards)',
+              '`!empoweredbyfate` — add a Red Joker to your Twist Deck',
             ].join('\n'),
           },
           {
@@ -1053,7 +1171,7 @@ client.on('messageCreate', async (msg) => {
 
   const [rawCmd, ...args] = msg.content.slice(PREFIX.length).trim().split(/\s+/);
   const cmd = rawCmd.toLowerCase();
-  const aliases = { createtwistdeck: 'createTwistDeck', twistshuffle: 'twistShuffle', deckinfo: 'deckinfo', clearhand: 'clearhand' };
+  const aliases = { createtwistdeck: 'createTwistDeck', twistshuffle: 'twistShuffle', deckinfo: 'deckinfo', clearhand: 'clearhand', weirdlookin: 'weirdlookin', twistedfates: 'twistedfates', empoweredbyfate: 'empoweredbyfate' };
   const resolved = aliases[cmd] || cmd;
   const handler = commands[resolved];
   if (!handler) return;
