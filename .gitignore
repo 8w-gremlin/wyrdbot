@@ -3,3 +3,4 @@ node_modules/
 state.json
 auth.json
 package-lock.json
+.claude/settings.local.json
