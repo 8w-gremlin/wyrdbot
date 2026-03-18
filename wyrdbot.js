@@ -11,7 +11,11 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const PREFIX = '!';
 const STATE_FILE = path.join(__dirname, 'state.json');
 const FM_ROLE = 'Fate Master';
-const FM_ONLY = new Set(['shuffle', 'reshuffle', 'clearhand', 'newsession', 'weirdlookin']);
+const FM_ONLY = new Set(['shuffle', 'reshuffle', 'clearhand', 'newsession', 'weirdlookin', 'setreleasechannel']);
+
+const { version } = require('./package.json');
+const buildHash = process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev';
+const BUILD_STRING = `v${version} (build ${buildHash})`;
 
 function isFateMaster(member) {
   if (!member) return false;
@@ -78,6 +82,7 @@ function getGuild(guildId) {
   const g = globalState[guildId];
   if (g.sidebar === undefined) g.sidebar = g.sleevedCard ?? null;
   if (g.countingCards === undefined) g.countingCards = null;
+  if (g.releaseChannel === undefined) g.releaseChannel = null;
   return g;
 }
 
@@ -840,6 +845,19 @@ commands.newsession = async (msg, args, g, _player) => {
   await msg.reply('@here New session started. Fate Deck reset, all hands cleared, Twist Decks reshuffled. Use `!draw` to draw your starting hand.');
 };
 
+// !setreleasechannel — FM only: set this channel as the release announcement channel (no args = clear)
+commands.setreleasechannel = async (msg, args, g, _player) => {
+  if (args[0] === 'clear') {
+    g.releaseChannel = null;
+    save();
+    await msg.reply('Release announcement channel cleared.');
+    return;
+  }
+  g.releaseChannel = msg.channel.id;
+  save();
+  await msg.reply(`Release announcements will be posted here. Current build: **${BUILD_STRING}**`);
+};
+
 // !handsize [n] or !handsize @player n (FM only for others)
 commands.handsize = async (msg, args, g, player) => {
   const fm = isFateMaster(msg.member);
@@ -1032,6 +1050,7 @@ commands.help = async (msg) => {
               '`!reshuffle` — full deck reset',
               '`!newsession` — new session reset (keeps twist suits)',
               '`!clearhand` — discard a player\'s hand',
+              '`!setreleasechannel` — set this channel for release announcements (`clear` to remove)',
             ].join('\n'),
           },
           {
@@ -1156,8 +1175,17 @@ const client = new Client({
 });
 
 client.once('ready', async () => {
-  console.log(`WyrdBot online as ${client.user.tag}`);
+  console.log(`WyrdBot online as ${client.user.tag} — ${BUILD_STRING}`);
   await resolveSuitEmoji(client);
+  for (const guild of client.guilds.cache.values()) {
+    const g = getGuild(guild.id);
+    if (!g.releaseChannel) continue;
+    const channel = guild.channels.cache.get(g.releaseChannel);
+    if (!channel) continue;
+    try {
+      await channel.send(`**WyrdBot ${BUILD_STRING}** is now live.`);
+    } catch { /* ignore if no permission */ }
+  }
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -1171,7 +1199,7 @@ client.on('messageCreate', async (msg) => {
 
   const [rawCmd, ...args] = msg.content.slice(PREFIX.length).trim().split(/\s+/);
   const cmd = rawCmd.toLowerCase();
-  const aliases = { createtwistdeck: 'createTwistDeck', twistshuffle: 'twistShuffle', deckinfo: 'deckinfo', clearhand: 'clearhand', weirdlookin: 'weirdlookin', twistedfates: 'twistedfates', empoweredbyfate: 'empoweredbyfate' };
+  const aliases = { createtwistdeck: 'createTwistDeck', twistshuffle: 'twistShuffle', deckinfo: 'deckinfo', clearhand: 'clearhand', weirdlookin: 'weirdlookin', twistedfates: 'twistedfates', empoweredbyfate: 'empoweredbyfate', setreleasechannel: 'setreleasechannel' };
   const resolved = aliases[cmd] || cmd;
   const handler = commands[resolved];
   if (!handler) return;
