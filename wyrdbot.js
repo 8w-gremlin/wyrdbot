@@ -1174,7 +1174,7 @@ const client = new Client({
   ],
 });
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`WyrdBot online as ${client.user.tag} — ${BUILD_STRING}`);
   await resolveSuitEmoji(client);
   for (const guild of client.guilds.cache.values()) {
